@@ -16,8 +16,6 @@ public class UserDAO {
 
     /**
      * 验证新的密码是否满足长度要求 (> 6个字符)。
-     * @param newPassword 新密码
-     * @throws BusinessException 如果验证失败
      */
     private void validatePassword(String newPassword) throws BusinessException {
         if (newPassword.length() <= 6) {
@@ -27,13 +25,8 @@ public class UserDAO {
 
     /**
      * 检查新密码是否与旧密码相同。
-     * [注意: 此方法直接操作明文密码。]
-     * @param userId 用户ID
-     * @param newPassword 新密码
-     * @return 如果相同返回true，否则返回false
      */
     private boolean isSameAsOldPassword(int userId, String newPassword) throws DBException {
-        // 查询数据库中的明文密码字段
         String sql = "SELECT password FROM users WHERE id = ?";
         try (Connection conn = DBHelper.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -42,10 +35,9 @@ public class UserDAO {
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     String oldPassword = rs.getString("password");
-                    // 直接比较新旧明文密码是否一致
                     return oldPassword.equals(newPassword);
                 }
-                return false; // 用户不存在
+                return false;
             }
         } catch (SQLException e) {
             throw new DBException("查询旧密码失败: " + e.getMessage(), e);
@@ -54,12 +46,6 @@ public class UserDAO {
 
     /**
      * [核心功能] 更新指定用户的用户名和密码。
-     * 满足：1. 密码大于6个字符。 2. 密码不和以前的密码相同。
-     * @param userId 目标用户ID
-     * @param newUsername 新用户名
-     * @param newPassword 新密码
-     * @throws DBException 数据库错误
-     * @throws BusinessException 业务规则错误 (密码长度, 密码重复, 用户名重复)
      */
     public void updateUserCredentials(int userId, String newUsername, String newPassword) throws DBException, BusinessException {
         // 1. 验证密码长度 (> 6个字符)
@@ -86,7 +72,6 @@ public class UserDAO {
             logDAO.logOperation("更新了用户ID: " + userId + " 的凭证。新用户名: " + newUsername);
 
         } catch (SQLException e) {
-            // 检查是否为用户名重复的异常
             if (e.getSQLState().startsWith("23")) {
                 throw new BusinessException("用户名 [" + newUsername + "] 已存在，请更换。");
             }
@@ -98,29 +83,42 @@ public class UserDAO {
     // ★ 个人中心和管理员重置凭证所需的新增方法 END
     // =================================================================
 
-    // --- 以下是您原有的方法 ---
-
+    /**
+     * ✅ 用户登录验证
+     * 改进：区分"已注销"和"已禁用"两种状态
+     */
     public User login(String username, String password) throws AuthException, ValidationException, DBException {
         if (username == null || username.isEmpty() || password == null || password.isEmpty()) {
             throw new ValidationException("用户名和密码不能为空。");
         }
 
-        String sql = "SELECT * FROM users WHERE username=? AND password=? AND is_active=1";
+        // ✅ 改进：查询时只检查用户名和密码，不限制 is_active
+        String sql = "SELECT * FROM users WHERE username=? AND password=?";
         try (Connection conn = DBHelper.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, username);
             ps.setString(2, password);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
+                    int isActive = rs.getInt("is_active");
+
+                    // ✅ 关键改进：根据不同状态返回不同错误信息
+                    if (isActive == -1) {
+                        // 已注销状态
+                        logDAO.logOperation("尝试登录已注销账号: " + username);
+                        throw new AuthException("该账号已注销，无法登录。");
+                    } else if (isActive == 0) {
+                        // 被管理员禁用
+                        logDAO.logOperation("尝试登录已禁用账号: " + username);
+                        throw new AuthException("账号已被管理员禁用，请联系管理员。");
+                    }
+
+                    // 正常登录
                     User user = new User(rs.getInt("id"), rs.getString("username"), rs.getString("role"));
                     logDAO.logOperation("用户 [" + username + "] 登录成功");
                     return user;
                 } else {
                     logDAO.logOperation("尝试登录失败: " + username);
-                    // 检查是否是被禁用的用户
-                    if(isUserDisabled(username)) {
-                        throw new AuthException("账号已被禁用，请联系管理员。");
-                    }
                     throw new AuthException("用户名或密码错误。");
                 }
             }
@@ -129,22 +127,16 @@ public class UserDAO {
         }
     }
 
-    private boolean isUserDisabled(String username) throws DBException {
-        String sql = "SELECT is_active FROM users WHERE username=?";
-        try (Connection conn = DBHelper.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, username);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() && rs.getInt("is_active") == 0;
-            }
-        } catch (SQLException e) {
-            throw new DBException("检查用户状态失败。", e);
-        }
-    }
-
+    /**
+     * ✅ 获取所有用户列表（用于管理界面）
+     * 改进：状态列显示"正常"、"已禁用"、"已注销"
+     */
     public DefaultTableModel getAllUsersModel() {
         Vector<String> cols = new Vector<>();
-        cols.add("ID"); cols.add("用户名"); cols.add("角色"); cols.add("状态");
+        cols.add("ID");
+        cols.add("用户名");
+        cols.add("角色");
+        cols.add("状态");
         Vector<Vector<Object>> data = new Vector<>();
 
         String sql = "SELECT id, username, role, is_active FROM users ORDER BY id";
@@ -156,18 +148,42 @@ public class UserDAO {
                 Vector<Object> row = new Vector<>();
                 row.add(rs.getInt("id"));
                 row.add(rs.getString("username"));
+
+                // 角色显示
                 String roleCn = "admin".equals(rs.getString("role")) ? "管理员" : "普通用户";
                 row.add(roleCn);
-                String statusCn = rs.getInt("is_active") == 1 ? "启用" : "禁用";
+
+                // ✅ 关键改进：状态列显示三种状态
+                int isActive = rs.getInt("is_active");
+                String statusCn;
+                if (isActive == 1) {
+                    statusCn = "正常";
+                } else if (isActive == 0) {
+                    statusCn = "已禁用";
+                } else {
+                    statusCn = "已注销"; // is_active = -1
+                }
                 row.add(statusCn);
+
                 data.add(row);
             }
-        } catch (Exception e) { e.printStackTrace(); }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         return new DefaultTableModel(data, cols);
     }
 
+    /**
+     * 添加新用户
+     */
     public void addUser(String username, String password, String role) throws DBException, ValidationException {
-        // ... (省略输入校验代码) ...
+        if (username == null || username.trim().isEmpty()) {
+            throw new ValidationException("用户名不能为空。");
+        }
+        if (password == null || password.trim().isEmpty()) {
+            throw new ValidationException("密码不能为空。");
+        }
+
         String sql = "INSERT INTO users (username, password, role) VALUES (?, ?, ?)";
         try (Connection conn = DBHelper.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -184,9 +200,14 @@ public class UserDAO {
         }
     }
 
-    // 您的原有方法 updatePassword 将不再需要，因为 updateUserCredentials 包含了密码修改功能
+    /**
+     * 重置密码（管理员功能）
+     */
     public void updatePassword(int userId, String newPassword) throws DBException, ValidationException {
-        // ... (省略输入校验代码) ...
+        if (newPassword == null || newPassword.trim().isEmpty()) {
+            throw new ValidationException("密码不能为空。");
+        }
+
         String sql = "UPDATE users SET password=? WHERE id=?";
         try (Connection conn = DBHelper.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -199,6 +220,9 @@ public class UserDAO {
         }
     }
 
+    /**
+     * 删除用户
+     */
     public void deleteUser(int userId) throws DBException {
         String sql = "DELETE FROM users WHERE id=?";
         try (Connection conn = DBHelper.getConnection();
@@ -215,7 +239,25 @@ public class UserDAO {
         }
     }
 
+    /**
+     * ✅ 管理员启用/禁用用户（0或1）
+     * 注意：此方法不应用于"已注销"状态的用户
+     */
     public void updateUserStatus(int userId, int isActive) throws DBException {
+        // ✅ 增加校验：不允许对已注销用户执行启用/禁用
+        String checkSql = "SELECT is_active FROM users WHERE id=?";
+        try (Connection conn = DBHelper.getConnection();
+             PreparedStatement checkPs = conn.prepareStatement(checkSql)) {
+            checkPs.setInt(1, userId);
+            try (ResultSet rs = checkPs.executeQuery()) {
+                if (rs.next() && rs.getInt("is_active") == -1) {
+                    throw new DBException("该用户已注销，无法执行启用/禁用操作。");
+                }
+            }
+        } catch (SQLException e) {
+            throw new DBException("检查用户状态失败: " + e.getMessage(), e);
+        }
+
         String sql = "UPDATE users SET is_active=? WHERE id=?";
         try (Connection conn = DBHelper.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -228,19 +270,129 @@ public class UserDAO {
             throw new DBException("更新用户状态失败: " + e.getMessage(), e);
         }
     }
-    public void deactivateUser(int userId) throws DBException {
-        // SQL: 假设您的用户表名为 users，且包含 is_active 字段
-        String sql = "UPDATE users SET is_active = 0 WHERE id = ?";
 
-        try (Connection conn = DBHelper.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+    /**
+     * ✅ 用户注销自己的账号（设置 is_active = -1）
+     * 此操作不可逆，用户将永久无法登录
+     *
+     * ✅ 新增校验：如果用户有未归还的图书，无法注销
+     * ✅ 日志记录：成功或失败都记录到系统日志
+     */
+    public void deactivateUser(int userId) throws DBException, BusinessException {
+        Connection conn = null;
+        String username = "用户ID:" + userId; // 默认值
 
-            pstmt.setInt(1, userId);
-            pstmt.executeUpdate();
+        try {
+            conn = DBHelper.getConnection();
 
+            // ✅ 获取用户名（用于日志记录）
+            String getUsernameSql = "SELECT username FROM users WHERE id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(getUsernameSql)) {
+                ps.setInt(1, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        username = rs.getString("username");
+                    }
+                }
+            }
+
+            // ✅ 第一步：检查是否有未归还的图书
+            String checkSql = "SELECT COUNT(*) AS unreturned_count FROM borrow_records " +
+                    "WHERE user_id = ? AND return_time IS NULL";
+
+            int unreturnedCount = 0;
+            try (PreparedStatement checkPs = conn.prepareStatement(checkSql)) {
+                checkPs.setInt(1, userId);
+                try (ResultSet rs = checkPs.executeQuery()) {
+                    if (rs.next()) {
+                        unreturnedCount = rs.getInt("unreturned_count");
+                    }
+                }
+            }
+
+            // ✅ 如果有未归还图书，记录日志并抛出业务异常
+            if (unreturnedCount > 0) {
+                // ✅ 记录失败日志
+                logDAO.logOperation(String.format(
+                        "用户 [%s] (ID:%d) 尝试注销账号失败：存在 %d 本未归还图书",
+                        username, userId, unreturnedCount
+                ));
+
+                throw new BusinessException(
+                        String.format("注销失败：您还有 %d 本图书未归还。\n\n请先归还所有图书后再进行注销操作。",
+                                unreturnedCount)
+                );
+            }
+
+            // ✅ 第二步：执行注销操作
+            String updateSql = "UPDATE users SET is_active = -1 WHERE id = ?";
+            try (PreparedStatement pstmt = conn.prepareStatement(updateSql)) {
+                pstmt.setInt(1, userId);
+                int rows = pstmt.executeUpdate();
+
+                if (rows == 0) {
+                    // ✅ 记录失败日志
+                    logDAO.logOperation(String.format(
+                            "用户 [%s] (ID:%d) 注销账号失败：用户不存在",
+                            username, userId
+                    ));
+                    throw new DBException("注销失败：用户不存在。");
+                }
+
+                // ✅ 记录成功日志
+                logDAO.logOperation(String.format(
+                        "用户 [%s] (ID:%d) 已成功注销账号（永久禁用）",
+                        username, userId
+                ));
+            }
+
+        } catch (BusinessException e) {
+            // ✅ 业务异常直接抛出（已在上面记录日志）
+            throw e;
         } catch (SQLException e) {
-            // 捕获 SQL 异常，封装为 DBException 抛出
+            // ✅ 记录数据库异常日志
+            logDAO.logOperation(String.format(
+                    "用户 [%s] (ID:%d) 注销账号失败：数据库错误 - %s",
+                    username, userId, e.getMessage()
+            ));
             throw new DBException("注销用户账号失败，请检查数据库连接或表结构。", e);
+        } finally {
+            try {
+                if (conn != null) conn.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
         }
     }
+    /**
+     * ★ 新增：根据用户ID查询完整的用户信息（包括密码）
+     * 用于个人中心只修改用户名时获取当前密码
+     */
+    public User getUserById(int userId) throws DBException {
+        String sql = "SELECT id, username, password, role, is_active FROM users WHERE id = ?";
+
+        try (Connection conn = DBHelper.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setInt(1, userId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    User user = new User(
+                            rs.getInt("id"),
+                            rs.getString("username"),
+                            rs.getString("password"),
+                            rs.getString("role")
+                    );
+                    return user;
+                } else {
+                    throw new DBException("用户ID " + userId + " 不存在");
+                }
+            }
+
+        } catch (SQLException e) {
+            throw new DBException("查询用户信息失败: " + e.getMessage(), e);
+        }
+    }
+
 }

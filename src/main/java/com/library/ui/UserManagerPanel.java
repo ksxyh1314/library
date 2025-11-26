@@ -4,15 +4,18 @@ import com.library.dao.UserDAO;
 import com.library.exception.DBException;
 import com.library.exception.ValidationException;
 import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableRowSorter;
 import java.awt.*;
+import java.util.regex.Pattern;
 
 public class UserManagerPanel extends JPanel {
-    // 依赖于 UserDAO
     private UserDAO userDAO = new UserDAO();
     private JTable userTable;
     private JLabel statsLabel;
+    private JTextField searchField;
+    private TableRowSorter<DefaultTableModel> sorter;  // ★ 修改类型
 
-    // ★ 定义默认密码常量
     private static final String DEFAULT_PASSWORD = "123456";
 
     public UserManagerPanel() {
@@ -27,6 +30,17 @@ public class UserManagerPanel extends JPanel {
         titleLabel.setFont(new Font("微软雅黑", Font.BOLD, 16));
         titlePanel.add(titleLabel);
 
+        // ✅ 搜索面板（单独一行）
+        JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        searchPanel.add(new JLabel("用户名全称:"));  // ★ 改为"用户名"（精准搜索）
+        searchField = new JTextField(20);
+        searchPanel.add(searchField);
+
+        JButton btnSearch = new JButton("🔍 搜索用户");
+        JButton btnReset = new JButton("↺ 重置");
+        searchPanel.add(btnSearch);
+        searchPanel.add(btnReset);
+
         // 按钮面板
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton btnAdd = new JButton("➕ 添加用户");
@@ -39,12 +53,27 @@ public class UserManagerPanel extends JPanel {
         buttonPanel.add(btnResetPass);
         buttonPanel.add(btnDelete);
         buttonPanel.add(btnToggleStatus);
-        buttonPanel.add(new JLabel("  ")); // 间隔
+        buttonPanel.add(new JLabel("  "));
         buttonPanel.add(btnRefresh);
 
-        topPanel.add(titlePanel, BorderLayout.NORTH);
-        topPanel.add(buttonPanel, BorderLayout.CENTER);
-        add(topPanel, BorderLayout.NORTH);
+        // ✅ 组合：标题 + 搜索 + 按钮
+        JPanel controlPanel = new JPanel(new BorderLayout());
+        controlPanel.add(titlePanel, BorderLayout.NORTH);
+        controlPanel.add(searchPanel, BorderLayout.CENTER);
+        controlPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+        topPanel.add(controlPanel, BorderLayout.CENTER);
+
+        // --- 提示信息 ---
+        JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JLabel infoLabel = new JLabel("💡 提示：可精准搜索用户名 | 状态说明：「正常」可操作 | 「已禁用」管理员禁用 | 「已注销」用户自己注销（仅可删除）");
+        infoLabel.setForeground(new Color(52, 152, 219));  // ★ 改为蓝色
+        infoPanel.add(infoLabel);
+
+        JPanel northContainer = new JPanel(new BorderLayout());
+        northContainer.add(topPanel, BorderLayout.NORTH);
+        northContainer.add(infoPanel, BorderLayout.CENTER);
+        add(northContainer, BorderLayout.NORTH);
 
         // --- 中间表格 ---
         userTable = new JTable();
@@ -63,34 +92,73 @@ public class UserManagerPanel extends JPanel {
 
         // ============ 事件监听 ============
 
+        btnSearch.addActionListener(e -> performSearch());
+        searchField.addActionListener(e -> performSearch());
+
+        btnReset.addActionListener(e -> {
+            searchField.setText("");
+            performSearch();
+        });
+
         btnRefresh.addActionListener(e -> {
             refreshTable();
             JOptionPane.showMessageDialog(this, "数据已刷新", "提示", JOptionPane.INFORMATION_MESSAGE);
         });
 
         btnAdd.addActionListener(e -> addUserAction());
-
         btnResetPass.addActionListener(e -> resetPasswordAction());
-
         btnDelete.addActionListener(e -> deleteUserAction());
-
         btnToggleStatus.addActionListener(e -> toggleUserStatusAction());
 
-        // ★ 初始化时更新统计信息
         updateStats();
     }
 
-    // --- 刷新表格辅助方法 ---
     private void refreshTable() {
-        userTable.setModel(userDAO.getAllUsersModel());
+        DefaultTableModel model = userDAO.getAllUsersModel();  // ★ 明确类型
+        userTable.setModel(model);
 
-        // ★ 刷新后更新统计信息
+        sorter = new TableRowSorter<>(model);  // ★ 使用 DefaultTableModel
+        userTable.setRowSorter(sorter);
+
+        if (searchField != null) {
+            searchField.setText("");
+        }
+
         updateStats();
     }
 
     /**
-     * ★ 更新底部统计信息
+     * ★ 执行精准搜索（完全匹配用户名）
      */
+    private void performSearch() {
+        if (sorter == null) {
+            return;
+        }
+
+        String searchText = searchField.getText().trim();
+
+        if (searchText.isEmpty()) {
+            // 清空搜索，显示所有用户
+            sorter.setRowFilter(null);
+        } else {
+            // ★ 精准匹配用户名（第2列，索引1）- 不区分大小写
+            RowFilter<DefaultTableModel, Object> filter =
+                    RowFilter.regexFilter("(?i)^" + Pattern.quote(searchText) + "$", 1);
+            sorter.setRowFilter(filter);
+
+            // 提示搜索结果
+            if (userTable.getRowCount() == 0) {
+                JOptionPane.showMessageDialog(this,
+                        "未找到用户名为 [" + searchText + "] 的用户。\n\n" +
+                                "提示：请输入完整的用户名（精准匹配）",
+                        "搜索结果",
+                        JOptionPane.INFORMATION_MESSAGE);
+            }
+        }
+
+        updateStats();
+    }
+
     private void updateStats() {
         if (statsLabel == null || userTable == null) {
             return;
@@ -99,14 +167,12 @@ public class UserManagerPanel extends JPanel {
         int totalCount = userTable.getRowCount();
         int adminCount = 0;
         int userCount = 0;
-        int enabledCount = 0;
+        int normalCount = 0;
         int disabledCount = 0;
+        int deactivatedCount = 0;
 
-        // 统计用户信息
         for (int i = 0; i < totalCount; i++) {
-            // 角色在第2列 (索引1)
             String role = (String) userTable.getValueAt(i, 2);
-            // 状态在第3列 (索引3)
             String status = (String) userTable.getValueAt(i, 3);
 
             if ("管理员".equals(role)) {
@@ -115,34 +181,30 @@ public class UserManagerPanel extends JPanel {
                 userCount++;
             }
 
-            if ("启用".equals(status)) {
-                enabledCount++;
-            } else {
+            if ("正常".equals(status)) {
+                normalCount++;
+            } else if ("已禁用".equals(status)) {
                 disabledCount++;
+            } else if ("已注销".equals(status)) {
+                deactivatedCount++;
             }
         }
 
-        // 显示统计信息
         String statsText = String.format(
-                "总用户数: %d 人  |  管理员: %d 人  |  普通用户: %d 人  |  已启用: %d 人  |  已禁用: %d 人",
-                totalCount, adminCount, userCount, enabledCount, disabledCount
+                "当前显示: %d 人  |  管理员: %d 人  |  普通用户: %d 人  |  正常: %d 人  |  已禁用: %d 人  |  已注销: %d 人",
+                totalCount, adminCount, userCount, normalCount, disabledCount, deactivatedCount
         );
         statsLabel.setText(statsText);
 
-        // 根据状态设置颜色
-        if (disabledCount > 0) {
-            // 有禁用用户 - 深红色（警示）
-            statsLabel.setForeground(new Color(192, 0, 0));
-        } else if (adminCount == 0 || userCount == 0) {
-            // 缺少某类用户 - 深绿色（提醒）
-            statsLabel.setForeground(new Color(0, 102, 0));
+        if (deactivatedCount > 0) {
+            statsLabel.setForeground(new Color(192, 57, 43));
+        } else if (disabledCount > 0) {
+            statsLabel.setForeground(new Color(230, 126, 34));
         } else {
-            // 正常状态 - 深橙色
-            statsLabel.setForeground(new Color(204, 102, 0));
+            statsLabel.setForeground(new Color(39, 174, 96));
         }
     }
 
-    // --- 1. 添加用户逻辑 ---
     private void addUserAction() {
         JTextField usernameField = new JTextField();
         JPasswordField passwordField = new JPasswordField();
@@ -174,7 +236,6 @@ public class UserManagerPanel extends JPanel {
         }
     }
 
-    // --- 2. 重置密码逻辑（改为默认密码123456） ---
     private void resetPasswordAction() {
         int row = userTable.getSelectedRow();
         if (row < 0) {
@@ -182,11 +243,19 @@ public class UserManagerPanel extends JPanel {
             return;
         }
 
-        // ID 是表格的第 0 列，Username 是第 1 列
-        int userId = (int) userTable.getValueAt(row, 0);
-        String username = (String) userTable.getValueAt(row, 1);
+        int modelRow = userTable.convertRowIndexToModel(row);
+        int userId = (int) userTable.getModel().getValueAt(modelRow, 0);
+        String username = (String) userTable.getModel().getValueAt(modelRow, 1);
+        String status = (String) userTable.getModel().getValueAt(modelRow, 3);
 
-        // ★ 修改：直接使用默认密码，显示确认对话框
+        if ("已注销".equals(status)) {
+            JOptionPane.showMessageDialog(this,
+                    "该用户已注销，无法重置密码。\n如需恢复使用，请删除后重新创建账号。",
+                    "操作限制",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
         String message = String.format(
                 "确认将用户 [%s] 的密码重置为默认密码吗？\n\n" +
                         "默认密码：%s\n\n" +
@@ -199,9 +268,7 @@ public class UserManagerPanel extends JPanel {
 
         if (confirm == JOptionPane.YES_OPTION) {
             try {
-                // ★ 使用默认密码重置
                 userDAO.updatePassword(userId, DEFAULT_PASSWORD);
-
                 JOptionPane.showMessageDialog(this,
                         String.format("用户 [%s] 的密码已成功重置为：%s\n请通知用户尽快修改密码。",
                                 username, DEFAULT_PASSWORD),
@@ -212,7 +279,6 @@ public class UserManagerPanel extends JPanel {
         }
     }
 
-    // --- 3. 删除用户逻辑 ---
     private void deleteUserAction() {
         int row = userTable.getSelectedRow();
         if (row < 0) {
@@ -220,10 +286,23 @@ public class UserManagerPanel extends JPanel {
             return;
         }
 
-        int userId = (int) userTable.getValueAt(row, 0);
-        String username = (String) userTable.getValueAt(row, 1);
+        int modelRow = userTable.convertRowIndexToModel(row);
+        int userId = (int) userTable.getModel().getValueAt(modelRow, 0);
+        String username = (String) userTable.getModel().getValueAt(modelRow, 1);
+        String status = (String) userTable.getModel().getValueAt(modelRow, 3);
 
-        int confirm = JOptionPane.showConfirmDialog(this, "确认删除用户 [" + username + "] 吗？", "删除确认", JOptionPane.YES_NO_OPTION);
+        String confirmMessage;
+        if ("已注销".equals(status)) {
+            confirmMessage = String.format(
+                    "确认删除已注销用户 [%s] 吗？\n\n" +
+                            "⚠️ 此操作将永久删除该用户的所有数据！",
+                    username
+            );
+        } else {
+            confirmMessage = "确认删除用户 [" + username + "] 吗？\n此操作不可撤销！";
+        }
+
+        int confirm = JOptionPane.showConfirmDialog(this, confirmMessage, "删除确认", JOptionPane.YES_NO_OPTION);
 
         if (confirm == JOptionPane.YES_OPTION) {
             try {
@@ -236,7 +315,6 @@ public class UserManagerPanel extends JPanel {
         }
     }
 
-    // --- 4. 启用/禁用账户逻辑 ---
     private void toggleUserStatusAction() {
         int row = userTable.getSelectedRow();
         if (row < 0) {
@@ -244,16 +322,28 @@ public class UserManagerPanel extends JPanel {
             return;
         }
 
-        int userId = (int) userTable.getValueAt(row, 0);
-        String username = (String) userTable.getValueAt(row, 1);
-        // 状态是第 3 列 (中文显示：启用/禁用)
-        String currentStatusCn = (String) userTable.getValueAt(row, 3);
+        int modelRow = userTable.convertRowIndexToModel(row);
+        int userId = (int) userTable.getModel().getValueAt(modelRow, 0);
+        String username = (String) userTable.getModel().getValueAt(modelRow, 1);
+        String currentStatusCn = (String) userTable.getModel().getValueAt(modelRow, 3);
 
-        // 逻辑：如果是"启用"，则新状态为禁用(0)；如果是"禁用"，则新状态为启用(1)
-        int newStatus = "启用".equals(currentStatusCn) ? 0 : 1;
+        if ("已注销".equals(currentStatusCn)) {
+            JOptionPane.showMessageDialog(this,
+                    "该用户已注销，无法执行启用/禁用操作。\n\n" +
+                            "已注销账户已永久失效，仅可执行【删除】操作。\n" +
+                            "如需恢复使用，请删除后重新创建账号。",
+                    "操作限制",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        int newStatus = "正常".equals(currentStatusCn) ? 0 : 1;
         String action = newStatus == 1 ? "启用" : "禁用";
 
-        int confirm = JOptionPane.showConfirmDialog(this, "确认对用户 [" + username + "] 执行 [" + action + "] 操作吗？", "状态切换确认", JOptionPane.YES_NO_OPTION);
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "确认对用户 [" + username + "] 执行 [" + action + "] 操作吗？",
+                "状态切换确认",
+                JOptionPane.YES_NO_OPTION);
 
         if (confirm == JOptionPane.YES_OPTION) {
             try {

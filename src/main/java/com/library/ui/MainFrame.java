@@ -2,6 +2,7 @@ package com.library.ui;
 
 import com.library.dao.UserDAO;
 import com.library.entity.User;
+import com.library.exception.BusinessException;
 import com.library.util.SessionManager;
 import com.library.exception.DBException;
 import javax.swing.*;
@@ -39,8 +40,8 @@ public class MainFrame extends JFrame {
             tabs.addTab("👤 个人中心", new PersonalCenterPanel(this));
         } else {
             // ========== 普通用户界面 ==========
-            tabs.addTab("📚 借书", new BorrowBookPanel(user));
-            tabs.addTab("📖 还书", new ReturnBookPanel(user));
+            tabs.addTab("📚 借阅图书", new BorrowBookPanel(user));
+            tabs.addTab("📖 归还图书", new ReturnBookPanel(user));
             tabs.addTab("📋 我的借阅记录", new MyBorrowPanel(user));
             tabs.addTab("👤 个人中心", new PersonalCenterPanel(this));
         }
@@ -55,17 +56,18 @@ public class MainFrame extends JFrame {
         JMenuBar menuBar = new JMenuBar();
         JMenu accountMenu = new JMenu("账户/系统");
 
-        // 1. 注销账户 (永久禁用功能)
-        JMenuItem deactivateItem = new JMenuItem("注销账户（永久禁用）", KeyEvent.VK_D);
-        deactivateItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_D, Toolkit.getDefaultToolkit().getMenuShortcutKeyMask()));
 
-        // 2. 返回登录界面 (仅清除会话)
-        JMenuItem logoutItem = new JMenuItem("返回登录界面（退出登录）", KeyEvent.VK_R);
+
+        // 1. 返回登录界面 (仅清除会话)
+        JMenuItem logoutItem = new JMenuItem("退出登录", KeyEvent.VK_R);
         logoutItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_R, Toolkit.getDefaultToolkit().getMenuShortcutKeyMask()));
 
-        // 3. 退出系统
+        // 2. 退出系统
         JMenuItem exitItem = new JMenuItem("退出系统", KeyEvent.VK_Q);
         exitItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Q, Toolkit.getDefaultToolkit().getMenuShortcutKeyMask()));
+        // 3. 注销账户 (永久禁用功能)
+        JMenuItem deactivateItem = new JMenuItem("注销账户", KeyEvent.VK_D);
+        deactivateItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_D, Toolkit.getDefaultToolkit().getMenuShortcutKeyMask()));
 
         // --- 监听器 ---
 
@@ -109,12 +111,14 @@ public class MainFrame extends JFrame {
 
     /**
      * ★★★ 核心实现：执行数据库禁用和退出登录 ★★★
+     * ✅ 改进：捕获 BusinessException，处理未归还图书的情况
      */
     private void performDeactivationAndLogout() {
         int userId = this.currentUser.getId();
 
         try {
-            // 1. 在数据库中禁用当前用户 (设置 is_active = 0)
+            // 1. 在数据库中禁用当前用户 (设置 is_active = -1)
+            // ✅ 此方法现在会检查是否有未归还图书
             userDAO.deactivateUser(userId);
 
             // 2. 清除内存中的会话
@@ -128,6 +132,14 @@ public class MainFrame extends JFrame {
 
             // 4. 返回登录界面
             returnToLoginScreen();
+
+        } catch (BusinessException ex) {
+            // ✅ 新增：处理业务异常（未归还图书）
+            JOptionPane.showMessageDialog(this,
+                    ex.getMessage(),
+                    "无法注销",
+                    JOptionPane.WARNING_MESSAGE);
+            // 不执行退出登录，用户可以继续使用
 
         } catch (DBException ex) {
             JOptionPane.showMessageDialog(this,

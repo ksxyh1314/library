@@ -5,7 +5,8 @@ import java.sql.*;
 
 public class DBHelper {
     // ★★★ 请务必修改这里的账号密码 ★★★
-    private static final String URL = "jdbc:mysql://localhost:3306/library_system?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&characterEncoding=utf-8";
+    // ✅ 修改：将 UTC 改为 Asia/Shanghai (北京时间)
+    private static final String URL = "jdbc:mysql://localhost:3306/library_system?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=utf-8";
     private static final String USER = "root";
     private static final String PASS = "ksxyh1314";
 

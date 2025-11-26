@@ -15,6 +15,7 @@ import javax.swing.table.DefaultTableModel;
  * 1. 显示所有可借阅的图书。
  * 2. 提供关键词搜索。
  * 3. 底部显示可借阅图书总数统计。
+ * ★ 添加标题样式，与 MyBorrowPanel 保持一致
  */
 public class BorrowBookPanel extends JPanel {
     private BookDAO bookDAO = new BookDAO();
@@ -34,37 +35,49 @@ public class BorrowBookPanel extends JPanel {
         setLayout(new BorderLayout());
 
         // ============================================================
-        // 1. 顶部搜索 + 按钮区域
+        // 1. ★ 顶部标题面板（新增，与 MyBorrowPanel 样式一致）
         // ============================================================
-        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        JPanel titlePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JLabel titleLabel = new JLabel("📚 借阅图书");
+        titleLabel.setFont(new Font("微软雅黑", Font.BOLD, 16));
+        JLabel userInfoLabel = new JLabel("  当前用户: " + currentUser.getUsername() + " (ID: " + currentUser.getId() + ")");
+        userInfoLabel.setForeground(new Color(127, 140, 141));
+        titlePanel.add(titleLabel);
+        titlePanel.add(userInfoLabel);
+
+        // ============================================================
+        // 2. 搜索 + 按钮区域
+        // ============================================================
+        JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
 
         txtSearch = new JTextField(20);
-        btnSearch = new JButton("🔍 搜索图书");
+        btnSearch = new JButton("🔍 搜索可借图书");
         btnResetSearch = new JButton("↺ 重置");
         JButton btnBorrow = new JButton("📥 借阅选中图书");
 
-        topPanel.add(new JLabel("书名关键词:"));
-        topPanel.add(txtSearch);
-        topPanel.add(btnSearch);
-        topPanel.add(btnResetSearch);
-        topPanel.add(btnBorrow);
+        controlPanel.add(new JLabel("书名关键词:"));
+        controlPanel.add(txtSearch);
+        controlPanel.add(btnSearch);
+        controlPanel.add(btnResetSearch);
+        controlPanel.add(btnBorrow);
 
         // ============================================================
-        // 2. 提示信息区域
+        // 3. 提示信息区域
         // ============================================================
         JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JLabel infoLabel = new JLabel("📚 以下为可借阅图书列表，选择后点击【借阅选中图书】按钮进行借阅");
         infoLabel.setForeground(new Color(52, 152, 219)); // 蓝色提示，代表借入
         infoPanel.add(infoLabel);
 
-        // 组合顶部容器
+        // ★ 组合顶部容器（标题 + 控制按钮 + 提示信息）
         JPanel northContainer = new JPanel(new BorderLayout());
-        northContainer.add(topPanel, BorderLayout.NORTH);
-        northContainer.add(infoPanel, BorderLayout.CENTER);
+        northContainer.add(titlePanel, BorderLayout.NORTH);
+        northContainer.add(controlPanel, BorderLayout.CENTER);
+        northContainer.add(infoPanel, BorderLayout.SOUTH);
         add(northContainer, BorderLayout.NORTH);
 
         // ============================================================
-        // 3. 中间表格区域
+        // 4. 中间表格区域
         // ============================================================
         bookTable = new JTable();
         bookTable.getTableHeader().setReorderingAllowed(false);
@@ -72,7 +85,7 @@ public class BorrowBookPanel extends JPanel {
         add(new JScrollPane(bookTable), BorderLayout.CENTER);
 
         // ============================================================
-        // 4. ★ 底部统计信息区域
+        // 5. ★ 底部统计信息区域
         // ============================================================
         JPanel bottomPanel = new JPanel(new BorderLayout());
         bottomPanel.setBackground(new Color(245, 245, 245)); // 浅灰背景
@@ -86,7 +99,7 @@ public class BorrowBookPanel extends JPanel {
         add(bottomPanel, BorderLayout.SOUTH);
 
         // ============================================================
-        // 5. 事件监听器
+        // 6. 事件监听器
         // ============================================================
         btnSearch.addActionListener(e -> refreshTable(txtSearch.getText()));
 

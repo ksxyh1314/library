@@ -14,6 +14,8 @@ import java.io.IOException;
 /**
  * 普通用户查看借阅历史记录的面板（增强版 - 带实际功能）
  * ★ 改进：添加图标、筛选功能、导出功能和底部统计
+ * ★ 新增：未归还显示"应归还日期"，已归还显示"归还日期"
+ * ★ 优化：所有按钮放在同一行
  */
 public class MyBorrowPanel extends JPanel {
     private BookDAO bookDAO = new BookDAO();
@@ -40,9 +42,11 @@ public class MyBorrowPanel extends JPanel {
         titlePanel.add(titleLabel);
         titlePanel.add(userInfoLabel);
 
-        // 筛选和操作面板
-        JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 5));
-        filterPanel.add(new JLabel("筛选状态:"));
+        // ★ 筛选和操作按钮放在同一行
+        JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 5));
+
+        // 筛选部分
+        controlPanel.add(new JLabel("筛选状态:"));
         statusFilter = new JComboBox<>(new String[]{
                 "全部记录",
                 "未归还",
@@ -51,26 +55,24 @@ public class MyBorrowPanel extends JPanel {
                 "已遗失"
         });
         statusFilter.setSelectedIndex(0);
-        filterPanel.add(statusFilter);
+        controlPanel.add(statusFilter);
 
         JButton btnResetFilter = new JButton("↺ 重置");
-        filterPanel.add(btnResetFilter);
+        controlPanel.add(btnResetFilter);
 
-        // 操作按钮
-        JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        // ★ 添加分隔符（可选）
+        JSeparator separator = new JSeparator(SwingConstants.VERTICAL);
+        separator.setPreferredSize(new Dimension(2, 25));
+        controlPanel.add(separator);
+
+        // 操作按钮部分
         JButton btnRefresh = new JButton("🔄 刷新记录");
         JButton btnExport = new JButton("📤 导出记录");
-
-        actionPanel.add(btnRefresh);
-        actionPanel.add(btnExport);
-
-        JPanel controlsContainer = new JPanel(new BorderLayout());
-        controlsContainer.add(filterPanel, BorderLayout.NORTH);
-        controlsContainer.add(actionPanel, BorderLayout.CENTER);
+        controlPanel.add(btnRefresh);
+        controlPanel.add(btnExport);
 
         topPanel.add(titlePanel, BorderLayout.NORTH);
-        topPanel.add(controlsContainer, BorderLayout.CENTER);
-        add(topPanel, BorderLayout.NORTH);
+        topPanel.add(controlPanel, BorderLayout.CENTER);
 
         // --- 2. 提示信息 ---
         JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -135,7 +137,7 @@ public class MyBorrowPanel extends JPanel {
                 recordTable.getColumnModel().getColumn(0).setPreferredWidth(50);  // ID
                 recordTable.getColumnModel().getColumn(1).setPreferredWidth(200); // 书名
                 recordTable.getColumnModel().getColumn(2).setPreferredWidth(150); // 借出日期
-                recordTable.getColumnModel().getColumn(3).setPreferredWidth(150); // 应还日期
+                recordTable.getColumnModel().getColumn(3).setPreferredWidth(150); // ★ 应归还日期/归还日期
                 recordTable.getColumnModel().getColumn(4).setPreferredWidth(100); // 是否归还
                 recordTable.getColumnModel().getColumn(5).setPreferredWidth(200); // 状态
             }
@@ -168,19 +170,19 @@ public class MyBorrowPanel extends JPanel {
         if ("全部记录".equals(selected)) {
             sorter.setRowFilter(null);
         } else if ("未归还".equals(selected)) {
-            // 第4列（索引4）="未归还"
+            // 第5列（索引4）="未归还"
             RowFilter<DefaultTableModel, Object> filter = RowFilter.regexFilter("未归还", 4);
             sorter.setRowFilter(filter);
         } else if ("已超期".equals(selected)) {
-            // 第5列（索引5）包含"已超期"
+            // 第6列（索引5）包含"已超期"
             RowFilter<DefaultTableModel, Object> filter = RowFilter.regexFilter("已超期", 5);
             sorter.setRowFilter(filter);
         } else if ("已归还".equals(selected)) {
-            // 第4列（索引4）="已归还"
+            // 第5列（索引4）="已归还"
             RowFilter<DefaultTableModel, Object> filter = RowFilter.regexFilter("已归还", 4);
             sorter.setRowFilter(filter);
         } else if ("已遗失".equals(selected)) {
-            // 第4列（索引4）="遗失"
+            // 第5列（索引4）="遗失"
             RowFilter<DefaultTableModel, Object> filter = RowFilter.regexFilter("遗失", 4);
             sorter.setRowFilter(filter);
         }
@@ -190,7 +192,7 @@ public class MyBorrowPanel extends JPanel {
     }
 
     /**
-     * 更新底部统计信息
+     * ★ 更新底部统计信息（添加已归还统计）
      */
     private void updateStats() {
         if (statsLabel == null || recordTable == null || model == null) {
@@ -198,9 +200,10 @@ public class MyBorrowPanel extends JPanel {
         }
 
         int totalCount = recordTable.getRowCount(); // 筛选后的行数
-        int unreturnedCount = 0;
-        int overdueCount = 0;
-        int lostCount = 0;
+        int unreturnedCount = 0;  // 未归还
+        int overdueCount = 0;     // 已超期
+        int returnedCount = 0;    // ★ 已归还
+        int lostCount = 0;        // 已遗失
 
         // 统计筛选后的数据
         for (int i = 0; i < totalCount; i++) {
@@ -208,29 +211,33 @@ public class MyBorrowPanel extends JPanel {
             String statusInfo = (String) recordTable.getValueAt(i, 5);
 
             if ("未归还".equals(returnStatus)) {
-                unreturnedCount++;
+                unreturnedCount++;  // 统计"未归还"
                 if (statusInfo.contains("已超期")) {
-                    overdueCount++;
+                    overdueCount++;  // 统计"已超期"
                 }
+            } else if ("已归还".equals(returnStatus)) {
+                returnedCount++;  // ★ 统计"已归还"
             } else if ("遗失".equals(returnStatus)) {
-                lostCount++;
+                lostCount++;  // 统计"已遗失"
             }
         }
 
-        // 显示统计信息
+        // ★ 显示统计信息（添加已归还）
         String statsText = String.format(
-                "当前显示: %d 条  |  未归还: %d 本  |  已超期: %d 本  |  已遗失: %d 本",
-                totalCount, unreturnedCount, overdueCount, lostCount
+                "当前显示: %d 条  |  未归还: %d 本  |  已超期: %d 本  |  已归还: %d 本  |  已遗失: %d 本",
+                totalCount, unreturnedCount, overdueCount, returnedCount, lostCount
         );
         statsLabel.setText(statsText);
 
-        // ★ 颜色与超期遗失界面配套
+        // ★ 颜色优先级：超期 > 遗失 > 未归还 > 正常
         if (overdueCount > 0) {
-            statsLabel.setForeground(new Color(192, 0, 0)); // 深红色 - 有超期
+            statsLabel.setForeground(new Color(192, 57, 43)); // 红色 - 有超期
         } else if (lostCount > 0) {
-            statsLabel.setForeground(new Color(204, 102, 0)); // 深橙色 - 有遗失
+            statsLabel.setForeground(new Color(230, 126, 34)); // 橙色 - 有遗失
+        } else if (unreturnedCount > 0) {
+            statsLabel.setForeground(new Color(52, 152, 219)); // 蓝色 - 有未归还
         } else {
-            statsLabel.setForeground(new Color(0, 102, 0)); // 深绿色 - 正常
+            statsLabel.setForeground(new Color(39, 174, 96)); // 绿色 - 全部已归还
         }
     }
 
@@ -256,6 +263,9 @@ public class MyBorrowPanel extends JPanel {
             File fileToSave = fileChooser.getSelectedFile();
 
             try (FileWriter writer = new FileWriter(fileToSave)) {
+                // 写入BOM（UTF-8标记，让Excel正确识别中文）
+                writer.write('\ufeff');
+
                 // 写入表头
                 for (int i = 0; i < recordTable.getColumnCount(); i++) {
                     writer.append(recordTable.getColumnName(i));

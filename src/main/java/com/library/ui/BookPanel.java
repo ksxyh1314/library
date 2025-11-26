@@ -2,7 +2,6 @@ package com.library.ui;
 
 import com.library.dao.BookDAO;
 import com.library.entity.User;
-import com.library.exception.BusinessException;
 import com.library.exception.DBException;
 import com.library.util.SessionManager;
 
@@ -10,6 +9,11 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 
+/**
+ * 图书管理面板 - 仅包含图书的增删改查功能
+ * 管理员：可以新增、修改、删除图书
+ * 普通用户：只能查看可借阅的图书
+ */
 public class BookPanel extends JPanel {
     private BookDAO bookDAO = new BookDAO();
     private JTable bookTable;
@@ -22,13 +26,9 @@ public class BookPanel extends JPanel {
     private JButton btnResetSearch;
 
     // 管理员操作组件
-    private JPanel adminCrudPanel;
     private JButton btnAddBook;
     private JButton btnUpdateBook;
     private JButton btnDeleteBook;
-
-    // 遗失处理按钮
-    private JButton btnLost;
 
     public BookPanel(User user) {
         this.currentUser = user;
@@ -37,97 +37,100 @@ public class BookPanel extends JPanel {
         setLayout(new BorderLayout());
 
         // ============================================================
-        // 1. 顶部查询和操作面板
+        // 1. 顶部面板
         // ============================================================
         JPanel topPanel = new JPanel(new BorderLayout());
 
-        // --- 1.1 左侧：查询部分 ---
-        JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        // --- 标题面板 ---
+        JPanel titlePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JLabel titleLabel = new JLabel("📚 图书管理");
+        titleLabel.setFont(new Font("微软雅黑", Font.BOLD, 16));
+        titlePanel.add(titleLabel);
+
+        // --- 搜索面板 ---
+        JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
+        searchPanel.add(new JLabel("书名关键词:"));
+
         txtSearch = new JTextField(20);
+        searchPanel.add(txtSearch);
+
         btnSearch = new JButton("🔍 搜索图书");
         btnResetSearch = new JButton("↺ 重置");
-
-        searchPanel.add(new JLabel("书名关键词:"));
-        searchPanel.add(txtSearch);
         searchPanel.add(btnSearch);
         searchPanel.add(btnResetSearch);
 
-        topPanel.add(searchPanel, BorderLayout.WEST);
-
-        // --- 1.2 右侧：用户操作部分 (借阅/归还/遗失) ---
-        JPanel userActionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton btnBorrow = new JButton("📥 借阅选中图书");
-        JButton btnReturn = new JButton("📤 归还选中图书");
-        userActionPanel.add(btnBorrow);
-        userActionPanel.add(btnReturn);
-
-        // 如果是管理员，添加遗失处理按钮
+        // --- 管理员操作按钮面板（仅管理员可见）---
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
         if (isAdmin) {
-            btnLost = new JButton("⚠️ 遗失处理");
-            userActionPanel.add(btnLost);
-        }
-
-        topPanel.add(userActionPanel, BorderLayout.EAST);
-        add(topPanel, BorderLayout.NORTH);
-
-        // ============================================================
-        // 2. 管理员 CRUD 面板 (仅管理员可见)
-        // ============================================================
-        if (isAdmin) {
-            adminCrudPanel = new JPanel();
-
-            // ★ 为按钮添加图标
             btnAddBook = new JButton("➕ 新增图书");
             btnUpdateBook = new JButton("✏️ 修改信息");
             btnDeleteBook = new JButton("🗑️ 删除图书");
 
-            // 设置按钮样式
-            btnAddBook.setFont(new Font("微软雅黑", Font.PLAIN, 12));
-            btnUpdateBook.setFont(new Font("微软雅黑", Font.PLAIN, 12));
-            btnDeleteBook.setFont(new Font("微软雅黑", Font.PLAIN, 12));
-
-            adminCrudPanel.add(btnAddBook);
-            adminCrudPanel.add(btnUpdateBook);
-            adminCrudPanel.add(btnDeleteBook);
-
-            // 将 CRUD 面板组合到顶部区域下方
-            JPanel northContainer = new JPanel(new BorderLayout());
-            northContainer.add(topPanel, BorderLayout.NORTH);
-            northContainer.add(adminCrudPanel, BorderLayout.CENTER);
-            add(northContainer, BorderLayout.NORTH);
+            buttonPanel.add(btnAddBook);
+            buttonPanel.add(btnUpdateBook);
+            buttonPanel.add(btnDeleteBook);
         }
 
+        // --- 组合控制面板 ---
+        JPanel controlPanel = new JPanel(new BorderLayout());
+        controlPanel.add(titlePanel, BorderLayout.NORTH);
+        controlPanel.add(searchPanel, BorderLayout.CENTER);
+        if (isAdmin) {
+            controlPanel.add(buttonPanel, BorderLayout.SOUTH);
+        }
+
+        topPanel.add(controlPanel, BorderLayout.CENTER);
+
+        // ★ 提示信息面板（放在搜索框下面）
+        JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        String infoText = isAdmin ?
+                "💡 提示：您可以新增、修改、删除图书信息（遗失/已删除的图书无法修改或删除）" :
+                "💡 提示：您可以查看图书列表";
+        JLabel infoLabel = new JLabel(infoText);
+        infoLabel.setForeground(new Color(52, 152, 219));
+        infoPanel.add(infoLabel);
+
+        // ★ 将顶部面板和提示信息组合
+        JPanel northContainer = new JPanel(new BorderLayout());
+        northContainer.add(topPanel, BorderLayout.NORTH);
+        northContainer.add(infoPanel, BorderLayout.CENTER);
+        add(northContainer, BorderLayout.NORTH);
+
         // ============================================================
-        // 3. 中间表格
+        // 2. 中间表格
         // ============================================================
         bookTable = new JTable();
         bookTable.getTableHeader().setReorderingAllowed(false);
-
         refreshTable(null);
         add(new JScrollPane(bookTable), BorderLayout.CENTER);
 
         // ============================================================
-        // 4. 事件监听器绑定
+        // 3. 事件监听器绑定
         // ============================================================
 
         // 搜索与重置
-        btnSearch.addActionListener(e -> refreshTable(txtSearch.getText()));
+        btnSearch.addActionListener(e -> performSearch());
+        txtSearch.addActionListener(e -> performSearch()); // 回车搜索
+
         btnResetSearch.addActionListener(e -> {
             txtSearch.setText("");
             refreshTable(null);
         });
-
-        // 普通操作
-        btnBorrow.addActionListener(e -> borrowBookAction());
-        btnReturn.addActionListener(e -> returnBookAction());
 
         // 管理员操作
         if (isAdmin) {
             btnAddBook.addActionListener(e -> addBookAction());
             btnUpdateBook.addActionListener(e -> updateBookAction());
             btnDeleteBook.addActionListener(e -> deleteBookAction());
-            btnLost.addActionListener(e -> handleBookLostAction());
         }
+    }
+
+    /**
+     * 执行搜索
+     */
+    private void performSearch() {
+        String keyword = txtSearch.getText().trim();
+        refreshTable(keyword.isEmpty() ? null : keyword);
     }
 
     /**
@@ -135,6 +138,7 @@ public class BookPanel extends JPanel {
      * @param keyword 搜索关键词，null 或空字符串表示查询所有
      */
     private void refreshTable(String keyword) {
+        // 普通用户只能看到"可借阅"的图书，管理员可以看到所有图书
         boolean onlyAvailable = !isAdmin;
         DefaultTableModel model = bookDAO.getBookModel(keyword, onlyAvailable);
         bookTable.setModel(model);
@@ -143,73 +147,18 @@ public class BookPanel extends JPanel {
         if (model.getRowCount() == 0 && keyword != null && !keyword.trim().isEmpty()) {
             JOptionPane.showMessageDialog(this,
                     "未找到符合关键词 [" + keyword + "] 的图书。",
-                    "搜索结果", JOptionPane.INFORMATION_MESSAGE);
+                    "搜索结果",
+                    JOptionPane.INFORMATION_MESSAGE);
         }
     }
 
     // ============================================================
-    // 业务逻辑方法
+    // 管理员操作方法
     // ============================================================
 
-    // 1. 借阅图书
-    private void borrowBookAction() {
-        int row = bookTable.getSelectedRow();
-        if (row < 0) {
-            JOptionPane.showMessageDialog(this, "请先选择要借阅的图书。", "提示", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        int bookId = (int) bookTable.getValueAt(row, 0);
-        String title = (String) bookTable.getValueAt(row, 1);
-        String status = (String) bookTable.getValueAt(row, 3);
-
-        if (!"可借阅".equals(status)) {
-            JOptionPane.showMessageDialog(this, "该书已被借出或不可用，无法借阅。", "操作失败", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        int confirm = JOptionPane.showConfirmDialog(this, "确认借阅图书 [" + title + "] 吗？", "借阅确认", JOptionPane.YES_NO_OPTION);
-        if (confirm == JOptionPane.YES_OPTION) {
-            try {
-                bookDAO.borrowBook(bookId, currentUser.getId());
-                refreshTable(null);
-                JOptionPane.showMessageDialog(this, "图书 [" + title + "] 借阅成功！", "成功", JOptionPane.INFORMATION_MESSAGE);
-            } catch (DBException | BusinessException ex) {
-                JOptionPane.showMessageDialog(this, "借阅失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
-            }
-        }
-    }
-
-    // 2. 归还图书
-    private void returnBookAction() {
-        int row = bookTable.getSelectedRow();
-        if (row < 0) {
-            JOptionPane.showMessageDialog(this, "请先选择要归还的图书。", "提示", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        int bookId = (int) bookTable.getValueAt(row, 0);
-        String title = (String) bookTable.getValueAt(row, 1);
-        String status = (String) bookTable.getValueAt(row, 3);
-
-        if (!"已借出".equals(status)) {
-            JOptionPane.showMessageDialog(this, "该书当前状态为 [" + status + "]，无需归还。", "操作失败", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        int confirm = JOptionPane.showConfirmDialog(this, "确认归还图书 [" + title + "] 吗？", "归还确认", JOptionPane.YES_NO_OPTION);
-        if (confirm == JOptionPane.YES_OPTION) {
-            try {
-                bookDAO.returnBook(bookId, currentUser.getId());
-                refreshTable(null);
-                JOptionPane.showMessageDialog(this, "图书 [" + title + "] 归还成功！", "成功", JOptionPane.INFORMATION_MESSAGE);
-            } catch (DBException | BusinessException ex) {
-                JOptionPane.showMessageDialog(this, "归还失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
-            }
-        }
-    }
-
-    // 3. 新增图书
+    /**
+     * 新增图书
+     */
     private void addBookAction() {
         if (!isAdmin) return;
 
@@ -220,23 +169,44 @@ public class BookPanel extends JPanel {
         if (dialog.isConfirmed()) {
             String title = dialog.getNewTitle();
             String author = dialog.getNewAuthor();
+
             try {
                 bookDAO.addBook(title, author);
                 refreshTable(null);
-                JOptionPane.showMessageDialog(this, "图书 [" + title + "] 新增成功!", "成功", JOptionPane.INFORMATION_MESSAGE);
+                JOptionPane.showMessageDialog(this,
+                        "图书 [" + title + "] 新增成功!",
+                        "成功",
+                        JOptionPane.INFORMATION_MESSAGE);
             } catch (DBException ex) {
-                JOptionPane.showMessageDialog(this, "新增失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this,
+                        "新增失败: " + ex.getMessage(),
+                        "错误",
+                        JOptionPane.ERROR_MESSAGE);
             }
         }
     }
 
-    // 4. 修改图书
+    /**
+     * ★ 修改图书信息（添加状态检查）
+     */
     private void updateBookAction() {
         if (!isAdmin) return;
 
         int row = bookTable.getSelectedRow();
         if (row < 0) {
-            JOptionPane.showMessageDialog(this, "请选择要修改的图书。", "提示", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                    "请先选择要修改的图书。",
+                    "提示",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // 检查列数
+        if (bookTable.getColumnCount() < 4) {
+            JOptionPane.showMessageDialog(this,
+                    "错误：表格缺少状态列！\n当前列数: " + bookTable.getColumnCount() + "\n需要至少4列（ID、书名、作者、状态）",
+                    "系统错误",
+                    JOptionPane.ERROR_MESSAGE);
             return;
         }
 
@@ -244,83 +214,145 @@ public class BookPanel extends JPanel {
         String oldTitle = (String) bookTable.getValueAt(row, 1);
         String oldAuthor = (String) bookTable.getValueAt(row, 2);
 
+        // ★ 获取状态并去除空格
+        Object statusObj = bookTable.getValueAt(row, 3);
+        String status = statusObj != null ? statusObj.toString().trim() : "";
+
+        // ★ 检查图书状态是否为"遗失"
+        if ("遗失".equals(status)) {
+            JOptionPane.showMessageDialog(this,
+                    String.format("该图书已遗失，无法修改信息。\n\n图书ID: %d\n书名: %s\n作者: %s\n状态: %s",
+                            bookId, oldTitle, oldAuthor, status),
+                    "操作失败",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // ★ 检查图书状态是否为"已删除"
+        if ("已删除".equals(status)) {
+            JOptionPane.showMessageDialog(this,
+                    String.format("该图书已删除，无法修改信息。\n\n图书ID: %d\n书名: %s\n作者: %s\n状态: %s",
+                            bookId, oldTitle, oldAuthor, status),
+                    "操作失败",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
         Frame parent = JOptionPane.getFrameForComponent(this);
-        BookInputDialog dialog = new BookInputDialog(parent, "修改图书信息 ID: " + bookId, oldTitle, oldAuthor);
+        BookInputDialog dialog = new BookInputDialog(parent,
+                "修改图书信息 (ID: " + bookId + ")",
+                oldTitle,
+                oldAuthor);
         dialog.setVisible(true);
 
         if (dialog.isConfirmed()) {
             String newTitle = dialog.getNewTitle();
             String newAuthor = dialog.getNewAuthor();
+
             try {
                 bookDAO.updateBook(bookId, newTitle, newAuthor);
                 refreshTable(null);
-                JOptionPane.showMessageDialog(this, "图书信息修改成功!", "成功", JOptionPane.INFORMATION_MESSAGE);
+                JOptionPane.showMessageDialog(this,
+                        "图书信息修改成功!",
+                        "成功",
+                        JOptionPane.INFORMATION_MESSAGE);
             } catch (DBException ex) {
-                JOptionPane.showMessageDialog(this, "修改失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this,
+                        "修改失败: " + ex.getMessage(),
+                        "错误",
+                        JOptionPane.ERROR_MESSAGE);
             }
         }
     }
 
-    // 5. 删除图书
+    /**
+     * ★ 删除图书（添加状态检查）
+     */
     private void deleteBookAction() {
         if (!isAdmin) return;
 
         int row = bookTable.getSelectedRow();
         if (row < 0) {
-            JOptionPane.showMessageDialog(this, "请选择要删除的图书。", "提示", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                    "请先选择要删除的图书。",
+                    "提示",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // 检查列数
+        if (bookTable.getColumnCount() < 4) {
+            JOptionPane.showMessageDialog(this,
+                    "错误：表格缺少状态列！\n当前列数: " + bookTable.getColumnCount(),
+                    "系统错误",
+                    JOptionPane.ERROR_MESSAGE);
             return;
         }
 
         int bookId = (int) bookTable.getValueAt(row, 0);
         String title = (String) bookTable.getValueAt(row, 1);
 
-        int confirm = JOptionPane.showConfirmDialog(this, "确认删除图书 [" + title + "] 吗？\n此操作不可撤销！", "删除确认", JOptionPane.YES_NO_OPTION);
-        if (confirm == JOptionPane.YES_OPTION) {
-            try {
-                bookDAO.deleteBook(bookId);
-                refreshTable(null);
-                JOptionPane.showMessageDialog(this, "图书删除成功!");
-            } catch (DBException ex) {
-                JOptionPane.showMessageDialog(this, ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
-            }
-        }
-    }
+        // ★ 获取状态并去除空格
+        Object statusObj = bookTable.getValueAt(row, 3);
+        String status = statusObj != null ? statusObj.toString().trim() : "";
 
-    // 6. 图书遗失处理
-    private void handleBookLostAction() {
-        if (!isAdmin) return;
-
-        int row = bookTable.getSelectedRow();
-        if (row < 0) {
-            JOptionPane.showMessageDialog(this, "请先选择要处理的图书。", "提示", JOptionPane.WARNING_MESSAGE);
+        // ★ 检查图书状态是否为"遗失"
+        if ("遗失".equals(status)) {
+            JOptionPane.showMessageDialog(this,
+                    String.format("该图书已遗失，无法删除。\n\n图书ID: %d\n书名: %s\n状态: %s\n\n提示：已遗失的图书已被系统标记，无需手动删除。",
+                            bookId, title, status),
+                    "操作失败",
+                    JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        int bookId = (int) bookTable.getValueAt(row, 0);
-        String status = (String) bookTable.getValueAt(row, 3);
-
-        if (!"已借出".equals(status) && !"borrowed".equalsIgnoreCase(status)) {
-            JOptionPane.showMessageDialog(this, "只有处于 [已借出] 状态的图书才能进行遗失处理。", "操作失败", JOptionPane.WARNING_MESSAGE);
+        // ★ 检查图书状态是否为"已删除"
+        if ("已删除".equals(status)) {
+            JOptionPane.showMessageDialog(this,
+                    String.format("该图书已删除，无法重复删除。\n\n图书ID: %d\n书名: %s\n状态: %s",
+                            bookId, title, status),
+                    "操作失败",
+                    JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        Frame parent = JOptionPane.getFrameForComponent(this);
-        LossResolutionDialog dialog = new LossResolutionDialog(parent, bookId);
-        dialog.setVisible(true);
+        // ★ 检查图书状态是否为"已借出"
+        if ("已借出".equals(status)) {
+            int confirm = JOptionPane.showConfirmDialog(this,
+                    String.format("该图书当前已借出，确认删除吗？\n\n图书ID: %d\n书名: %s\n状态: %s\n\n⚠️ 删除后借阅记录仍会保留，但图书将无法再次借阅。",
+                            bookId, title, status),
+                    "删除确认",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
 
-        if (dialog.isConfirmed()) {
-            String resolutionType = dialog.getResolutionType();
-            double amount = dialog.getAmount();
-
-            try {
-                bookDAO.handleBookLost(bookId, resolutionType, amount);
-                refreshTable(null);
-
-                String msg = "图书遗失处理成功！\n方式: " + ("Replacement".equals(resolutionType) ? "新书替换" : "罚款 " + amount + "元");
-                JOptionPane.showMessageDialog(this, msg, "成功", JOptionPane.INFORMATION_MESSAGE);
-            } catch (DBException | BusinessException ex) {
-                JOptionPane.showMessageDialog(this, "处理失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+            if (confirm != JOptionPane.YES_OPTION) {
+                return;
             }
+        } else {
+            // 正常删除确认
+            int confirm = JOptionPane.showConfirmDialog(this,
+                    "确认删除图书 [" + title + "] 吗？\n\n⚠️ 此操作不可撤销！",
+                    "删除确认",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+
+            if (confirm != JOptionPane.YES_OPTION) {
+                return;
+            }
+        }
+
+        try {
+            bookDAO.deleteBook(bookId);
+            refreshTable(null);
+            JOptionPane.showMessageDialog(this,
+                    "图书 [" + title + "] 删除成功!",
+                    "成功",
+                    JOptionPane.INFORMATION_MESSAGE);
+        } catch (DBException ex) {
+            JOptionPane.showMessageDialog(this,
+                    "删除失败: " + ex.getMessage(),
+                    "错误",
+                    JOptionPane.ERROR_MESSAGE);
         }
     }
 }
