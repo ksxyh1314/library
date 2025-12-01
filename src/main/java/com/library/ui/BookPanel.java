@@ -115,6 +115,7 @@ public class BookPanel extends JPanel {
         btnResetSearch.addActionListener(e -> {
             txtSearch.setText("");
             refreshTable(null);
+            bookTable.clearSelection(); // 添加这行，取消选中
         });
 
         // 管理员操作

@@ -112,6 +112,7 @@ public class MyBorrowPanel extends JPanel {
         btnResetFilter.addActionListener(e -> {
             statusFilter.setSelectedIndex(0);
             applyFilter();
+            recordTable.clearSelection(); // 添加这行
         });
 
         // 筛选功能监听

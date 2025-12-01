@@ -106,6 +106,7 @@ public class BorrowBookPanel extends JPanel {
         btnResetSearch.addActionListener(e -> {
             txtSearch.setText("");
             refreshTable(null);
+            bookTable.clearSelection(); // 添加这行，取消选中
         });
 
         btnBorrow.addActionListener(e -> borrowBookAction());

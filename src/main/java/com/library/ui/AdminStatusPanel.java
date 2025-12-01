@@ -120,6 +120,7 @@ public class AdminStatusPanel extends JPanel {
         btnReset.addActionListener(e -> {
             txtSearchUser.setText("");
             cmbStatusFilter.setSelectedIndex(0);
+            table.clearSelection(); // 添加这行
             performSearch();
         });
 

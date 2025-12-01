@@ -1,5 +1,6 @@
 package com.library.ui;
 
+import com.library.config.SystemConfig;
 import com.library.dao.BookDAO;
 import com.library.exception.BusinessException;
 import com.library.exception.DBException;
@@ -26,18 +27,28 @@ public class OverdueManagementPanel extends JPanel {
     private JComboBox<String> cmbStatusFilter;
     private JTextField txtSearch;
     private JLabel statsLabel;
-
     public OverdueManagementPanel() {
         setLayout(new BorderLayout());
 
         // --- 1. 顶部操作面板 ---
         JPanel topPanel = new JPanel(new BorderLayout());
-
-        // 标题面板
+        // 在标题面板中
         JPanel titlePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JLabel titleLabel = new JLabel("⏰ 超期和遗失管理");
         titleLabel.setFont(new Font("微软雅黑", Font.BOLD, 16));
+
+        // ★ 添加模式提示
+        JLabel modeLabel = new JLabel("  |  " + SystemConfig.getModeDescription());
+        if (SystemConfig.IS_TEST_MODE) {
+            modeLabel.setForeground(new Color(231, 76, 60));
+        } else {
+            modeLabel.setForeground(new Color(39, 174, 96));
+        }
+        modeLabel.setFont(new Font("微软雅黑", Font.BOLD, 11));
+
         titlePanel.add(titleLabel);
+        titlePanel.add(modeLabel);
+
 
         // ★ 搜索和筛选面板（单独一行）
         JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
@@ -137,6 +148,7 @@ public class OverdueManagementPanel extends JPanel {
             txtSearch.setText("");
             cmbSearchType.setSelectedIndex(0);
             cmbStatusFilter.setSelectedIndex(0);
+            recordTable.clearSelection(); // 添加这行
             performSearch();
         });
 
@@ -326,114 +338,176 @@ public class OverdueManagementPanel extends JPanel {
     private void handleOverdueFine() {
         int row = recordTable.getSelectedRow();
         if (row < 0) {
-            JOptionPane.showMessageDialog(this,
-                    "请先选择要处理的借阅记录。",
-                    "提示",
-                    JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "请先选择要处理的借阅记录。", "提示", JOptionPane.WARNING_MESSAGE);
             return;
         }
+
+        int modelRow = recordTable.convertRowIndexToModel(row);
 
         // 获取记录信息
-        int borrowId = (int) recordTable.getValueAt(row, 0);
-        String bookTitle = (String) recordTable.getValueAt(row, 2);
-        String username = (String) recordTable.getValueAt(row, 4);
-        String returnStatus = (String) recordTable.getValueAt(row, 7);
-        String statusInfo = (String) recordTable.getValueAt(row, 8);
+        int borrowId = (int) model.getValueAt(modelRow, 0);      // 记录ID
+        int bookId = (int) model.getValueAt(modelRow, 1);        // 图书ID
+        String title = (String) model.getValueAt(modelRow, 2);   // 书名
+        String username = (String) model.getValueAt(modelRow, 4); // 用户名
+        String returnStatus = (String) model.getValueAt(modelRow, 7); // 是否归还
+        String statusInfo = (String) model.getValueAt(modelRow, 8);   // 状态信息
 
-        // ★ 1. 判断是否已归还
-        if ("已归还".equals(returnStatus)) {
-            JOptionPane.showMessageDialog(this,
-                    String.format("该图书已归还，无法处理超期罚款。\n\n图书：%s\n借阅人：%s\n状态：%s",
-                            bookTitle, username, statusInfo),
-                    "操作失败",
-                    JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        // ★ 2. 判断是否已遗失
-        if ("遗失".equals(returnStatus)) {
-            JOptionPane.showMessageDialog(this,
-                    String.format("该图书已标记为遗失，无法处理超期罚款。\n\n图书：%s\n借阅人：%s\n状态：%s",
-                            bookTitle, username, statusInfo),
-                    "操作失败",
-                    JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        // ★ 3. 判断是否未归还
+        // ★ 检查是否是未归还且超期的记录
         if (!"未归还".equals(returnStatus)) {
-            JOptionPane.showMessageDialog(this,
-                    String.format("该记录状态异常，无法处理。\n\n图书：%s\n借阅人：%s\n当前状态：%s",
-                            bookTitle, username, returnStatus),
-                    "操作失败",
-                    JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "该图书已归还，无需处理。", "提示", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
-        // ★ 4. 判断是否超期
-        if (statusInfo == null || !statusInfo.contains("已超期")) {
+        if (!statusInfo.contains("已超期")) {
             JOptionPane.showMessageDialog(this,
-                    String.format("该书籍没有超期，无法处理超期罚款。\n\n图书：%s\n借阅人：%s\n当前状态：%s",
-                            bookTitle, username, statusInfo != null ? statusInfo : "借阅中"),
-                    "操作失败",
+                    "该图书未超期，无需处理罚款。\n\n当前状态: " + statusInfo,
+                    "提示",
                     JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
-        // 输入罚款金额
-        String input = JOptionPane.showInputDialog(this,
-                String.format("请输入超期罚款金额（元）：\n\n图书：%s\n借阅人：%s\n状态：%s",
-                        bookTitle, username, statusInfo),
-                "超期罚款处理",
-                JOptionPane.QUESTION_MESSAGE);
-
-        if (input == null || input.trim().isEmpty()) {
-            return; // 用户取消
+        // 提取超期数值（分钟或天数）
+        String numberStr = statusInfo.replaceAll("[^0-9]", "");
+        int overduePeriod = 0;
+        try {
+            overduePeriod = Integer.parseInt(numberStr);
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this, "无法解析超期时长。", "错误", JOptionPane.ERROR_MESSAGE);
+            return;
         }
 
-        try {
-            double fineAmount = Double.parseDouble(input.trim());
-            if (fineAmount <= 0) {
-                JOptionPane.showMessageDialog(this,
-                        "罚款金额必须大于0！",
-                        "输入错误",
-                        JOptionPane.ERROR_MESSAGE);
-                return;
-            }
+        // ★ 创建罚款处理对话框
+        JDialog fineDialog = new JDialog((Frame) SwingUtilities.getWindowAncestor(this), "处理超期罚款", true);
+        fineDialog.setLayout(new BorderLayout(10, 10));
+        fineDialog.setSize(450, 380);
+        fineDialog.setLocationRelativeTo(this);
+        fineDialog.setResizable(false);
 
-            // 确认处理
-            int confirm = JOptionPane.showConfirmDialog(this,
-                    String.format("确认处理超期罚款吗？\n\n图书：%s\n借阅人：%s\n罚款金额：%.2f 元",
-                            bookTitle, username, fineAmount),
-                    "确认处理",
-                    JOptionPane.YES_NO_OPTION);
+        // 信息面板
+        JPanel infoPanel = new JPanel();
+        infoPanel.setLayout(new BoxLayout(infoPanel, BoxLayout.Y_AXIS));
+        infoPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 10, 20));
+        infoPanel.setBackground(Color.WHITE);
 
-            if (confirm == JOptionPane.YES_OPTION) {
+        // 标题
+        JLabel titleLabel = new JLabel("超期罚款处理");
+        titleLabel.setFont(new Font("微软雅黑", Font.BOLD, 16));
+        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        infoPanel.add(titleLabel);
+        infoPanel.add(Box.createVerticalStrut(15));
+
+        // 借阅信息
+        JLabel[] labels = {
+                new JLabel("借阅记录ID: " + borrowId),
+                new JLabel("图书名称: " + title),
+                new JLabel("借阅人: " + username)
+        };
+
+        for (JLabel label : labels) {
+            label.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+            label.setAlignmentX(Component.LEFT_ALIGNMENT);
+            infoPanel.add(label);
+            infoPanel.add(Box.createVerticalStrut(5));
+        }
+
+        infoPanel.add(Box.createVerticalStrut(5));
+
+        // 超期信息（红色加粗）
+        JLabel overdueLabel = new JLabel("⚠ 超期时长: " + overduePeriod + " " + SystemConfig.getTimeUnitText());
+        overdueLabel.setForeground(new Color(231, 76, 60));
+        overdueLabel.setFont(new Font("微软雅黑", Font.BOLD, 14));
+        overdueLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        infoPanel.add(overdueLabel);
+        infoPanel.add(Box.createVerticalStrut(15));
+
+        // 罚款输入面板
+        JPanel fineInputPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        fineInputPanel.setBackground(Color.WHITE);
+        fineInputPanel.add(new JLabel("罚款金额（元）: "));
+
+        // 默认罚款金额
+        double defaultFine = overduePeriod * SystemConfig.FINE_PER_UNIT;
+        JTextField txtFineAmount = new JTextField(String.format("%.2f", defaultFine), 10);
+        fineInputPanel.add(txtFineAmount);
+
+        infoPanel.add(fineInputPanel);
+        infoPanel.add(Box.createVerticalStrut(10));
+
+        // 提示信息
+        JLabel tipLabel = new JLabel("💡 提示: 处理罚款后，图书将自动标记为已归还");
+        tipLabel.setForeground(new Color(127, 140, 141));
+        tipLabel.setFont(new Font("微软雅黑", Font.PLAIN, 11));
+        tipLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        infoPanel.add(tipLabel);
+
+        infoPanel.add(Box.createVerticalStrut(5));
+
+        // 罚款标准说明
+        JLabel standardLabel = new JLabel("罚款标准: " + SystemConfig.FINE_PER_UNIT + " 元" + SystemConfig.FINE_UNIT_TEXT);
+        standardLabel.setForeground(new Color(127, 140, 141));
+        standardLabel.setFont(new Font("微软雅黑", Font.PLAIN, 11));
+        standardLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        infoPanel.add(standardLabel);
+
+        // 按钮面板
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 15));
+        buttonPanel.setBackground(Color.WHITE);
+
+        JButton btnConfirm = new JButton("✓ 确认处理");
+        JButton btnCancel = new JButton("✗ 取消");
+
+        btnConfirm.setPreferredSize(new Dimension(120, 35));
+        btnCancel.setPreferredSize(new Dimension(120, 35));
+
+        btnConfirm.addActionListener(e -> {
+            try {
+                String fineText = txtFineAmount.getText().trim();
+                if (fineText.isEmpty()) {
+                    JOptionPane.showMessageDialog(fineDialog, "请输入罚款金额！", "输入错误", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
+                double fineAmount = Double.parseDouble(fineText);
+
+                if (fineAmount < 0) {
+                    JOptionPane.showMessageDialog(fineDialog, "罚款金额不能为负数！", "输入错误", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
+                // ★ 调用 DAO 方法记录罚款（会自动完成归还）
                 bookDAO.recordOverdueFine(borrowId, fineAmount);
-                JOptionPane.showMessageDialog(this,
-                        String.format("超期罚款处理成功！\n罚款金额：%.2f 元", fineAmount),
+
+                JOptionPane.showMessageDialog(fineDialog,
+                        "罚款处理成功！\n\n" +
+                                "罚款金额: " + String.format("%.2f", fineAmount) + " 元\n" +
+                                "图书已自动标记为已归还",
                         "处理成功",
                         JOptionPane.INFORMATION_MESSAGE);
-                refreshTable();
-            }
 
-        } catch (NumberFormatException ex) {
-            JOptionPane.showMessageDialog(this,
-                    "请输入有效的金额数字！",
-                    "输入错误",
-                    JOptionPane.ERROR_MESSAGE);
-        } catch (DBException ex) {
-            JOptionPane.showMessageDialog(this,
-                    "处理失败: " + ex.getMessage(),
-                    "错误",
-                    JOptionPane.ERROR_MESSAGE);
-        }
+                fineDialog.dispose();
+                refreshTable(); // 刷新表格
+                updateStats();  // 更新统计信息
+
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(fineDialog, "请输入有效的数字金额！", "输入错误", JOptionPane.ERROR_MESSAGE);
+            } catch (DBException ex) {
+                JOptionPane.showMessageDialog(fineDialog, "处理失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        btnCancel.addActionListener(e -> fineDialog.dispose());
+
+        buttonPanel.add(btnConfirm);
+        buttonPanel.add(btnCancel);
+
+        fineDialog.add(infoPanel, BorderLayout.CENTER);
+        fineDialog.add(buttonPanel, BorderLayout.SOUTH);
+        fineDialog.setVisible(true);
     }
 
 
-    /**
-     * 处理图书遗失（罚款或新书替换）
-     */
+
+
     /**
      * 处理图书遗失（罚款或新书替换）
      */

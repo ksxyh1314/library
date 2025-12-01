@@ -97,6 +97,7 @@ public class UserManagerPanel extends JPanel {
 
         btnReset.addActionListener(e -> {
             searchField.setText("");
+            userTable.clearSelection(); // 添加这行
             performSearch();
         });
 

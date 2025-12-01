@@ -2,7 +2,7 @@ package com.library.dao;
 
 import com.library.exception.*;
 import com.library.util.DBHelper;
-
+import com.library.config.SystemConfig; // ← 导入配置类
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.sql.*;
@@ -339,16 +339,18 @@ public class BookDAO {
      */
     public DefaultTableModel getMyBorrowRecordsModel(int userId) throws DBException {
         Vector<String> cols = new Vector<>();
-        cols.add("ID");
-        cols.add("图书名称");
+        cols.add("记录ID");
+        cols.add("图书ID");
+        cols.add("书名");
+        cols.add("作者");
         cols.add("借出日期");
-        cols.add("应还日期/归还日期");
+        cols.add("归还日期");
         cols.add("是否归还");
-        cols.add("状态/处理结果");
+        cols.add("状态");
 
         Vector<Vector<Object>> data = new Vector<>();
 
-        String sql = "SELECT br.id, b.title, br.borrow_time, br.return_time, br.is_returned, br.fine_amount, br.resolution " +
+        String sql = "SELECT br.id, br.book_id, b.title, b.author, br.borrow_time, br.return_time, br.is_returned " +
                 "FROM borrow_records br " +
                 "JOIN books b ON br.book_id = b.id " +
                 "WHERE br.user_id = ? " +
@@ -358,76 +360,56 @@ public class BookDAO {
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setInt(1, userId);
+            ResultSet rs = pstmt.executeQuery();
 
-            try (ResultSet rs = pstmt.executeQuery()) {
-                while (rs.next()) {
-                    Vector<Object> row = new Vector<>();
-                    row.add(rs.getInt("id"));
-                    row.add(rs.getString("title"));
+            while (rs.next()) {
+                Vector<Object> row = new Vector<>();
+                row.add(rs.getInt("id"));
+                row.add(rs.getInt("book_id"));
+                row.add(rs.getString("title"));
+                row.add(rs.getString("author"));
 
-                    Timestamp borrowTime = rs.getTimestamp("borrow_time");
-                    row.add(borrowTime);
+                Timestamp borrowTime = rs.getTimestamp("borrow_time");
+                row.add(borrowTime != null ? borrowTime.toString() : "-");
 
-                    // ★ 计算应还日期
-                    long dueTimeMillis = borrowTime.getTime() + (long)30 * 24 * 60 * 60 * 1000;
-                    Timestamp dueDate = new Timestamp(dueTimeMillis);
+                Timestamp returnTime = rs.getTimestamp("return_time");
+                row.add(returnTime != null ? returnTime.toString() : "-");
 
-                    // ★ 获取归还时间
-                    Timestamp returnTime = rs.getTimestamp("return_time");
-                    boolean hasReturned = returnTime != null;
-                    String resolution = rs.getString("resolution");
-                    double fine = rs.getDouble("fine_amount");
+                boolean isReturned = rs.getBoolean("is_returned");
+                row.add(isReturned ? "已归还" : "未归还");
 
-                    // ★ 根据是否归还显示不同的日期
-                    if (hasReturned) {
-                        row.add(returnTime);
-                    } else {
-                        row.add(dueDate);
-                    }
+                if (!isReturned && borrowTime != null) {
+                    // ★ 使用配置类中的借阅期限
+                    long dueTimeMillis = borrowTime.getTime() + SystemConfig.DUE_PERIOD_MILLIS;
+                    long currentTime = System.currentTimeMillis();
 
-                    // --- 判断 "是否归还" 列 ---
-                    if (!hasReturned) {
-                        row.add("未归还");
-                    } else {
-                        if (resolution != null && !resolution.trim().isEmpty()) {
-                            row.add("遗失");
+                    if (currentTime > dueTimeMillis) {
+                        // ★ 根据测试模式显示不同的超期单位
+                        if (SystemConfig.IS_TEST_MODE) {
+                            long overdueMinutes = (currentTime - dueTimeMillis) / (60 * 1000);
+                            row.add("已超期 " + overdueMinutes + " 分钟");
                         } else {
-                            row.add("已归还");
-                        }
-                    }
-
-                    // --- 判断 "状态/处理结果" 列 ---
-                    if (!hasReturned) {
-                        long diff = System.currentTimeMillis() - dueTimeMillis;
-                        int overdueDays = (int) Math.max(0, diff / (24 * 60 * 60 * 1000));
-
-                        if (overdueDays > 0) {
+                            long overdueDays = (currentTime - dueTimeMillis) / (24 * 60 * 60 * 1000);
                             row.add("已超期 " + overdueDays + " 天");
-                        } else {
-                            row.add("借阅中");
                         }
                     } else {
-                        if (resolution != null && !resolution.trim().isEmpty()) {
-                            if ("遗失罚款".equals(resolution) || resolution.contains("罚款")) {
-                                if (fine > 0) {
-                                    row.add("遗失罚款 " + String.format("%.2f", fine) + " 元");
-                                } else {
-                                    row.add(resolution);
-                                }
-                            } else {
-                                row.add(resolution);
-                            }
-                        } else if (fine > 0) {
-                            row.add("超期罚款 " + String.format("%.2f", fine) + " 元");
+                        if (SystemConfig.IS_TEST_MODE) {
+                            long remainingMinutes = (dueTimeMillis - currentTime) / (60 * 1000);
+                            row.add("借阅中（剩余 " + remainingMinutes + " 分钟）");
                         } else {
-                            row.add("正常归还");
+                            long remainingDays = (dueTimeMillis - currentTime) / (24 * 60 * 60 * 1000);
+                            row.add("借阅中（剩余 " + remainingDays + " 天）");
                         }
                     }
-                    data.add(row);
+                } else {
+                    row.add(isReturned ? "正常归还" : "-");
                 }
+
+                data.add(row);
             }
+
         } catch (SQLException e) {
-            throw new DBException("查询用户借阅记录失败。", e);
+            throw new DBException("加载借阅记录失败。", e);
         }
 
         return new DefaultTableModel(data, cols) {
@@ -438,23 +420,24 @@ public class BookDAO {
         };
     }
 
-    /**
+    /*
      * ★ 获取用户当前未归还的图书（用于还书界面）
      */
     public DefaultTableModel getCurrentBorrowedBooksModel(int userId) throws DBException {
         Vector<String> cols = new Vector<>();
-        cols.add("记录ID");
+        cols.add("图书ID");
         cols.add("图书名称");
+        cols.add("作者");
         cols.add("借出日期");
         cols.add("应还日期");
         cols.add("状态");
 
         Vector<Vector<Object>> data = new Vector<>();
 
-        String sql = "SELECT br.id, b.title, br.borrow_time " +
+        String sql = "SELECT br.id AS record_id, br.book_id, b.title, b.author, br.borrow_time " +
                 "FROM borrow_records br " +
                 "JOIN books b ON br.book_id = b.id " +
-                "WHERE br.user_id = ? AND br.return_time IS NULL " +
+                "WHERE br.user_id = ? AND br.is_returned = 0 " +
                 "ORDER BY br.borrow_time DESC";
 
         try (Connection conn = DBHelper.getConnection();
@@ -466,24 +449,42 @@ public class BookDAO {
             while (rs.next()) {
                 Vector<Object> row = new Vector<>();
 
-                row.add(rs.getInt("id"));
+                row.add(rs.getInt("book_id"));
                 row.add(rs.getString("title"));
+                row.add(rs.getString("author"));
 
                 Timestamp borrowTime = rs.getTimestamp("borrow_time");
                 row.add(borrowTime != null ? borrowTime.toString() : "-");
 
                 if (borrowTime != null) {
-                    long dueTimeMillis = borrowTime.getTime() + (long) 30 * 24 * 60 * 60 * 1000;
+                    // ★ 使用配置类中的借阅期限
+                    long dueTimeMillis = borrowTime.getTime() + SystemConfig.DUE_PERIOD_MILLIS;
                     Timestamp dueDate = new Timestamp(dueTimeMillis);
                     row.add(dueDate.toString());
 
                     long currentTime = System.currentTimeMillis();
                     if (currentTime > dueTimeMillis) {
-                        long overdueDays = (currentTime - dueTimeMillis) / (24 * 60 * 60 * 1000);
-                        row.add("已超期 " + overdueDays + " 天");
+                        // ★ 根据测试模式显示不同的超期单位
+                        if (SystemConfig.IS_TEST_MODE) {
+                            // 测试模式：显示超期分钟数
+                            long overdueMinutes = (currentTime - dueTimeMillis) / (60 * 1000);
+                            row.add("已超期 " + overdueMinutes + " 分钟");
+                        } else {
+                            // 生产模式：显示超期天数
+                            long overdueDays = (currentTime - dueTimeMillis) / (24 * 60 * 60 * 1000);
+                            row.add("已超期 " + overdueDays + " 天");
+                        }
                     } else {
-                        long remainingDays = (dueTimeMillis - currentTime) / (24 * 60 * 60 * 1000);
-                        row.add("借阅中（剩余 " + remainingDays + " 天）");
+                        // ★ 根据测试模式显示不同的剩余单位
+                        if (SystemConfig.IS_TEST_MODE) {
+                            // 测试模式：显示剩余分钟数
+                            long remainingMinutes = (dueTimeMillis - currentTime) / (60 * 1000);
+                            row.add("借阅中（剩余 " + remainingMinutes + " 分钟）");
+                        } else {
+                            // 生产模式：显示剩余天数
+                            long remainingDays = (dueTimeMillis - currentTime) / (24 * 60 * 60 * 1000);
+                            row.add("借阅中（剩余 " + remainingDays + " 天）");
+                        }
                     }
                 } else {
                     row.add("-");
@@ -504,6 +505,7 @@ public class BookDAO {
             }
         };
     }
+
 
     private static final int DUE_DAYS = 30;
 
@@ -547,7 +549,7 @@ public class BookDAO {
                 Timestamp borrowTime = rs.getTimestamp("borrow_time");
                 row.add(borrowTime);
 
-                long dueTimeMillis = borrowTime.getTime() + (long)30 * 24 * 60 * 60 * 1000;
+                long dueTimeMillis = borrowTime.getTime() + SystemConfig.DUE_PERIOD_MILLIS;
                 Timestamp dueDate = new Timestamp(dueTimeMillis);
                 row.add(dueDate);
 
@@ -605,27 +607,64 @@ public class BookDAO {
     }
 
     /**
-     * 记录超期罚款金额，更新借阅记录。
+     * 记录超期罚款金额，更新借阅记录，并自动完成归还
      */
     public void recordOverdueFine(int borrowId, double fineAmount) throws DBException {
-        String sql = "UPDATE borrow_records SET fine_amount = ?, resolution = '超期罚款处理', is_returned = 1, return_time = NOW() WHERE id = ?";
+        Connection conn = null;
+        try {
+            conn = DBHelper.getConnection();
+            conn.setAutoCommit(false);
 
-        try (Connection conn = DBHelper.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setDouble(1, fineAmount);
-            ps.setInt(2, borrowId);
-
-            int rows = ps.executeUpdate();
-            if (rows == 0) {
-                throw new DBException("未找到借阅记录 ID: " + borrowId + " 或记录已处理。");
+            // 1. 获取图书ID
+            int bookId = 0;
+            String getSql = "SELECT book_id FROM borrow_records WHERE id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(getSql)) {
+                ps.setInt(1, borrowId);
+                ResultSet rs = ps.executeQuery();
+                if (rs.next()) {
+                    bookId = rs.getInt("book_id");
+                } else {
+                    throw new DBException("未找到借阅记录 ID: " + borrowId);
+                }
             }
-            logDAO.logOperation("记录借阅ID " + borrowId + " 超期罚款，金额: " + fineAmount + "元。");
+
+            // 2. 更新借阅记录（标记为已归还，记录罚款）
+            String updateRecordSql = "UPDATE borrow_records " +
+                    "SET fine_amount = ?, resolution = '超期罚款处理', is_returned = 1, return_time = NOW() " +
+                    "WHERE id = ? AND is_returned = 0";  // ← 确保只更新未归还的记录
+
+            try (PreparedStatement ps = conn.prepareStatement(updateRecordSql)) {
+                ps.setDouble(1, fineAmount);
+                ps.setInt(2, borrowId);
+                int rows = ps.executeUpdate();
+                if (rows == 0) {
+                    throw new DBException("更新借阅记录失败，该记录可能已处理或不存在。");
+                }
+            }
+
+            // 3. 更新图书状态为 '可借阅'
+            String updateBookSql = "UPDATE books SET status = '可借阅' WHERE id = ? AND status = '已借出'";
+            try (PreparedStatement ps = conn.prepareStatement(updateBookSql)) {
+                ps.setInt(1, bookId);
+                ps.executeUpdate();
+            }
+
+            conn.commit();
+            logDAO.logOperation("处理借阅ID " + borrowId + " 超期罚款，金额: " + fineAmount + "元，图书已归还。");
 
         } catch (SQLException e) {
-            throw new DBException("记录罚款失败。", e);
+            try { if (conn != null) conn.rollback(); } catch (SQLException ex) {}
+            throw new DBException("记录罚款失败: " + e.getMessage(), e);
+        } finally {
+            try {
+                if (conn != null) {
+                    conn.setAutoCommit(true);
+                    conn.close();
+                }
+            } catch (SQLException e) {}
         }
     }
+
 
     /**
      * 处理图书遗失（事务操作）。
@@ -745,29 +784,29 @@ public class BookDAO {
      */
     public DefaultTableModel getAllBorrowRecordsModelForAdmin() throws DBException {
         Vector<String> cols = new Vector<>();
-        cols.add("ID");
+        cols.add("记录ID");
         cols.add("图书ID");
-        cols.add("图书名称");
+        cols.add("书名");
         cols.add("用户ID");
         cols.add("用户名");
         cols.add("借出日期");
         cols.add("归还日期");
         cols.add("是否归还");
-        cols.add("状态/处理结果");
+        cols.add("状态");
 
         Vector<Vector<Object>> data = new Vector<>();
 
         String sql = "SELECT br.id, br.book_id, b.title, br.user_id, u.username, " +
-                "br.borrow_time, br.return_time, br.is_returned, br.fine_amount, br.resolution " +
+                "br.borrow_time, br.return_time, br.is_returned " +
                 "FROM borrow_records br " +
                 "JOIN books b ON br.book_id = b.id " +
                 "JOIN users u ON br.user_id = u.id " +
-                "WHERE b.status != '已删除' " +
                 "ORDER BY br.borrow_time DESC";
 
         try (Connection conn = DBHelper.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            ResultSet rs = pstmt.executeQuery();
 
             while (rs.next()) {
                 Vector<Object> row = new Vector<>();
@@ -778,59 +817,45 @@ public class BookDAO {
                 row.add(rs.getString("username"));
 
                 Timestamp borrowTime = rs.getTimestamp("borrow_time");
-                row.add(borrowTime);
+                row.add(borrowTime != null ? borrowTime.toString() : "-");
 
                 Timestamp returnTime = rs.getTimestamp("return_time");
-                if (returnTime != null) {
-                    row.add(returnTime);
-                } else {
-                    row.add("-");
-                }
+                row.add(returnTime != null ? returnTime.toString() : "-");
 
-                int isReturned = rs.getInt("is_returned");
-                String resolution = rs.getString("resolution");
-                double fine = rs.getDouble("fine_amount");
+                boolean isReturned = rs.getBoolean("is_returned");
+                row.add(isReturned ? "已归还" : "未归还");
 
-                String returnStatus;
-                if (isReturned == 0) {
-                    returnStatus = "未归还";
-                } else if (resolution != null && resolution.contains("遗失")) {
-                    returnStatus = "遗失";
-                } else {
-                    returnStatus = "已归还";
-                }
-                row.add(returnStatus);
+                if (!isReturned && borrowTime != null) {
+                    // ★ 使用配置类中的借阅期限
+                    long dueTimeMillis = borrowTime.getTime() + SystemConfig.DUE_PERIOD_MILLIS;
+                    long currentTime = System.currentTimeMillis();
 
-                String statusInfo;
-                if (isReturned == 0) {
-                    long dueTimeMillis = borrowTime.getTime() + (long)30 * 24 * 60 * 60 * 1000;
-                    long diff = System.currentTimeMillis() - dueTimeMillis;
-                    int overdueDays = (int) Math.max(0, diff / (24 * 60 * 60 * 1000));
-
-                    if (overdueDays > 0) {
-                        statusInfo = "已超期 " + overdueDays + " 天";
-                    } else {
-                        statusInfo = "借阅中";
-                    }
-                } else {
-                    if (resolution != null && !resolution.trim().isEmpty()) {
-                        if (resolution.contains("罚款") && fine > 0) {
-                            statusInfo = resolution + " " + String.format("%.2f", fine) + " 元";
+                    if (currentTime > dueTimeMillis) {
+                        if (SystemConfig.IS_TEST_MODE) {
+                            long overdueMinutes = (currentTime - dueTimeMillis) / (60 * 1000);
+                            row.add("已超期 " + overdueMinutes + " 分钟");
                         } else {
-                            statusInfo = resolution;
+                            long overdueDays = (currentTime - dueTimeMillis) / (24 * 60 * 60 * 1000);
+                            row.add("已超期 " + overdueDays + " 天");
                         }
-                    } else if (fine > 0) {
-                        statusInfo = "超期罚款 " + String.format("%.2f", fine) + " 元";
                     } else {
-                        statusInfo = "正常归还";
+                        if (SystemConfig.IS_TEST_MODE) {
+                            long remainingMinutes = (dueTimeMillis - currentTime) / (60 * 1000);
+                            row.add("借阅中（剩余 " + remainingMinutes + " 分钟）");
+                        } else {
+                            long remainingDays = (dueTimeMillis - currentTime) / (24 * 60 * 60 * 1000);
+                            row.add("借阅中（剩余 " + remainingDays + " 天）");
+                        }
                     }
+                } else {
+                    row.add(isReturned ? "正常归还" : "-");
                 }
-                row.add(statusInfo);
 
                 data.add(row);
             }
+
         } catch (SQLException e) {
-            throw new DBException("查询借阅记录失败。", e);
+            throw new DBException("加载所有借阅记录失败。", e);
         }
 
         return new DefaultTableModel(data, cols) {
