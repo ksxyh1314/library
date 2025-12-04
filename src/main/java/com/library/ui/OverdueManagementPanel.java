@@ -14,9 +14,9 @@ import java.io.IOException;
 import java.util.regex.Pattern;
 
 /**
- * 超期和遗失管理面板 - 管理员专用
+ * 超期和遗失管理面板 - 管理员专用（简洁版）
  * 功能：处理超期罚款、遗失罚款、新书替换
- * ★ 新增：精准搜索功能（用户名/书名）、完整统计信息
+ * ★ 优化：简化状态显示（只显示：超期罚款、遗失罚款、新书替换）、左对齐
  */
 public class OverdueManagementPanel extends JPanel {
     private BookDAO bookDAO = new BookDAO();
@@ -27,12 +27,15 @@ public class OverdueManagementPanel extends JPanel {
     private JComboBox<String> cmbStatusFilter;
     private JTextField txtSearch;
     private JLabel statsLabel;
+    private Timer refreshTimer;
+
     public OverdueManagementPanel() {
         setLayout(new BorderLayout());
 
         // --- 1. 顶部操作面板 ---
         JPanel topPanel = new JPanel(new BorderLayout());
-        // 在标题面板中
+
+        // 标题面板
         JPanel titlePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JLabel titleLabel = new JLabel("⏰ 超期和遗失管理");
         titleLabel.setFont(new Font("微软雅黑", Font.BOLD, 16));
@@ -49,26 +52,20 @@ public class OverdueManagementPanel extends JPanel {
         titlePanel.add(titleLabel);
         titlePanel.add(modeLabel);
 
-
-        // ★ 搜索和筛选面板（单独一行）
+        // ★ 搜索和筛选面板
         JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
 
-        // 搜索类型选择
         cmbSearchType = new JComboBox<>(new String[]{"用户名", "书名"});
         searchPanel.add(cmbSearchType);
 
-        // 搜索输入框
         txtSearch = new JTextField(15);
         searchPanel.add(txtSearch);
 
-        // 搜索按钮
         JButton btnSearch = new JButton("🔍 搜索");
         searchPanel.add(btnSearch);
 
-        // 分隔符
         searchPanel.add(new JLabel("  |  "));
 
-        // 状态筛选
         searchPanel.add(new JLabel("筛选状态:"));
         cmbStatusFilter = new JComboBox<>(new String[]{
                 "全部记录",
@@ -80,10 +77,8 @@ public class OverdueManagementPanel extends JPanel {
         cmbStatusFilter.setSelectedIndex(0);
         searchPanel.add(cmbStatusFilter);
 
-        // 分隔符
         searchPanel.add(new JLabel("  |  "));
 
-        // ★ 统一的重置按钮（重置搜索和筛选）
         JButton btnReset = new JButton("↺ 重置");
         searchPanel.add(btnReset);
 
@@ -122,8 +117,15 @@ public class OverdueManagementPanel extends JPanel {
         recordTable = new JTable();
         recordTable.getTableHeader().setReorderingAllowed(false);
         recordTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        recordTable.setRowHeight(28); // ★ 增加行高
+        recordTable.getTableHeader().setFont(new Font("微软雅黑", Font.BOLD, 12));
         refreshTable();
-        add(new JScrollPane(recordTable), BorderLayout.CENTER);
+
+        // ★ 使用滚动面板
+        JScrollPane scrollPane = new JScrollPane(recordTable);
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        add(scrollPane, BorderLayout.CENTER);
 
         // --- 4. 底部统计信息 ---
         JPanel bottomPanel = new JPanel(new BorderLayout());
@@ -134,21 +136,20 @@ public class OverdueManagementPanel extends JPanel {
         bottomPanel.add(statsLabel, BorderLayout.WEST);
         add(bottomPanel, BorderLayout.SOUTH);
 
-        // ★ 初始化时更新统计信息
         updateStats();
 
         // ============ 事件监听 ============
 
         // ★ 搜索功能
         btnSearch.addActionListener(e -> performSearch());
-        txtSearch.addActionListener(e -> performSearch()); // 回车搜索
+        txtSearch.addActionListener(e -> performSearch());
 
-        // ★ 统一的重置按钮（重置搜索框、搜索类型、状态筛选）
+        // ★ 重置按钮
         btnReset.addActionListener(e -> {
             txtSearch.setText("");
             cmbSearchType.setSelectedIndex(0);
             cmbStatusFilter.setSelectedIndex(0);
-            recordTable.clearSelection(); // 添加这行
+            recordTable.clearSelection();
             performSearch();
         });
 
@@ -172,27 +173,68 @@ public class OverdueManagementPanel extends JPanel {
     }
 
     /**
-     * 刷新表格数据 - 显示所有借阅记录
+     * ★★★ 刷新表格数据（优化列宽 + 左对齐 + 滚动条）
      */
     private void refreshTable() {
         try {
             model = bookDAO.getAllBorrowRecordsModel();
             recordTable.setModel(model);
 
-            // 设置列宽
+            // ★★★ 优化列宽设置（不设置 MaxWidth，允许拖动调整）
             if (recordTable.getColumnCount() > 0) {
-                recordTable.getColumnModel().getColumn(0).setPreferredWidth(50);  // 记录ID
-                recordTable.getColumnModel().getColumn(1).setPreferredWidth(60);  // 图书ID
-                recordTable.getColumnModel().getColumn(2).setPreferredWidth(180); // 图书名称
-                recordTable.getColumnModel().getColumn(3).setPreferredWidth(60);  // 用户ID
-                recordTable.getColumnModel().getColumn(4).setPreferredWidth(100); // 用户名
-                recordTable.getColumnModel().getColumn(5).setPreferredWidth(150); // 借出日期
-                recordTable.getColumnModel().getColumn(6).setPreferredWidth(150); // 应还日期
-                recordTable.getColumnModel().getColumn(7).setPreferredWidth(80);  // 是否归还
-                recordTable.getColumnModel().getColumn(8).setPreferredWidth(200); // 状态/处理结果
+                // 记录ID
+                recordTable.getColumnModel().getColumn(0).setPreferredWidth(80);
+                recordTable.getColumnModel().getColumn(0).setMinWidth(60);
+
+                // 图书ID
+                recordTable.getColumnModel().getColumn(1).setPreferredWidth(80);
+                recordTable.getColumnModel().getColumn(1).setMinWidth(60);
+
+                // 图书名称
+                recordTable.getColumnModel().getColumn(2).setPreferredWidth(250);
+                recordTable.getColumnModel().getColumn(2).setMinWidth(150);
+
+                // 用户ID
+                recordTable.getColumnModel().getColumn(3).setPreferredWidth(80);
+                recordTable.getColumnModel().getColumn(3).setMinWidth(60);
+
+                // 用户名
+                recordTable.getColumnModel().getColumn(4).setPreferredWidth(120);
+                recordTable.getColumnModel().getColumn(4).setMinWidth(80);
+
+                // 借出日期
+                recordTable.getColumnModel().getColumn(5).setPreferredWidth(180);
+                recordTable.getColumnModel().getColumn(5).setMinWidth(160);
+
+                // 应还日期
+                recordTable.getColumnModel().getColumn(6).setPreferredWidth(180);
+                recordTable.getColumnModel().getColumn(6).setMinWidth(160);
+
+                // 是否归还
+                recordTable.getColumnModel().getColumn(7).setPreferredWidth(100);
+                recordTable.getColumnModel().getColumn(7).setMinWidth(80);
+
+                // 状态
+                recordTable.getColumnModel().getColumn(8).setPreferredWidth(200);
+                recordTable.getColumnModel().getColumn(8).setMinWidth(150);
+
+                // 罚款状态
+                recordTable.getColumnModel().getColumn(9).setPreferredWidth(180);
+                recordTable.getColumnModel().getColumn(9).setMinWidth(120);
             }
 
-            // ★ 设置排序器 (用于筛选和搜索)
+            // ★★★ 关键：关闭自动调整，使用滚动条
+            recordTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+
+            // ★★★ 设置所有列左对齐
+            javax.swing.table.DefaultTableCellRenderer leftRenderer = new javax.swing.table.DefaultTableCellRenderer();
+            leftRenderer.setHorizontalAlignment(javax.swing.SwingConstants.LEFT);
+
+            for (int i = 0; i < recordTable.getColumnCount(); i++) {
+                recordTable.getColumnModel().getColumn(i).setCellRenderer(leftRenderer);
+            }
+
+            // ★ 设置排序器
             sorter = new TableRowSorter<>(model);
             recordTable.setRowSorter(sorter);
 
@@ -209,6 +251,51 @@ public class OverdueManagementPanel extends JPanel {
 
             updateStats();
 
+            // ★ 启动定时器，每分钟刷新一次
+            if (refreshTimer != null) {
+                refreshTimer.stop();
+            }
+
+            refreshTimer = new Timer(60000, e -> {
+                int selectedRow = recordTable.getSelectedRow();
+                try {
+                    DefaultTableModel newModel = bookDAO.getAllBorrowRecordsModel();
+                    recordTable.setModel(newModel);
+                    sorter = new TableRowSorter<>(newModel);
+                    recordTable.setRowSorter(sorter);
+
+                    // ★ 重新设置列宽和左对齐
+                    if (recordTable.getColumnCount() > 0) {
+                        recordTable.getColumnModel().getColumn(0).setPreferredWidth(80);
+                        recordTable.getColumnModel().getColumn(1).setPreferredWidth(80);
+                        recordTable.getColumnModel().getColumn(2).setPreferredWidth(250);
+                        recordTable.getColumnModel().getColumn(3).setPreferredWidth(80);
+                        recordTable.getColumnModel().getColumn(4).setPreferredWidth(120);
+                        recordTable.getColumnModel().getColumn(5).setPreferredWidth(180);
+                        recordTable.getColumnModel().getColumn(6).setPreferredWidth(180);
+                        recordTable.getColumnModel().getColumn(7).setPreferredWidth(100);
+                        recordTable.getColumnModel().getColumn(8).setPreferredWidth(200);
+                        recordTable.getColumnModel().getColumn(9).setPreferredWidth(180);
+                    }
+
+                    recordTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+
+                    for (int i = 0; i < recordTable.getColumnCount(); i++) {
+                        recordTable.getColumnModel().getColumn(i).setCellRenderer(leftRenderer);
+                    }
+
+                    // 恢复选中行
+                    if (selectedRow >= 0 && selectedRow < recordTable.getRowCount()) {
+                        recordTable.setRowSelectionInterval(selectedRow, selectedRow);
+                    }
+
+                    updateStats();
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
+            });
+            refreshTimer.start();
+
         } catch (DBException ex) {
             JOptionPane.showMessageDialog(this,
                     "加载数据失败: " + ex.getMessage(),
@@ -218,7 +305,7 @@ public class OverdueManagementPanel extends JPanel {
     }
 
     /**
-     * ★ 执行精准搜索和筛选（组合功能）
+     * ★★★ 执行精准搜索和筛选（修复版 - 支持新书替换 + 优化提示信息）
      */
     private void performSearch() {
         if (sorter == null) {
@@ -229,32 +316,56 @@ public class OverdueManagementPanel extends JPanel {
         String searchType = (String) cmbSearchType.getSelectedItem();
         String selectedStatus = (String) cmbStatusFilter.getSelectedItem();
 
-        // 组合过滤条件
         RowFilter<DefaultTableModel, Object> combinedFilter = null;
 
-        // 1. ★ 精准搜索过滤（用户名或书名）
+        // 1. 精准搜索过滤
         RowFilter<DefaultTableModel, Object> searchFilter = null;
         if (!searchText.isEmpty()) {
             if ("用户名".equals(searchType)) {
-                // 精准匹配用户名（第5列，索引4）
                 searchFilter = RowFilter.regexFilter("(?i)^" + Pattern.quote(searchText) + "$", 4);
             } else if ("书名".equals(searchType)) {
-                // 精准匹配书名（第3列，索引2）
                 searchFilter = RowFilter.regexFilter("(?i)^" + Pattern.quote(searchText) + "$", 2);
             }
         }
 
-        // 2. 状态过滤
+        // 2. ★★★ 状态过滤（修复版 - 根据状态列判断新书替换）
         RowFilter<DefaultTableModel, Object> statusFilter = null;
         if (!"全部记录".equals(selectedStatus)) {
             if ("未归还".equals(selectedStatus)) {
-                statusFilter = RowFilter.regexFilter("未归还", 7);
+                // ★ 筛选第8列"是否归还"（索引7）= "未归还"
+                statusFilter = RowFilter.regexFilter("^未归还$", 7);
+
             } else if ("已超期".equals(selectedStatus)) {
+                // ★ 筛选第9列"状态"（索引8）包含"已超期"
                 statusFilter = RowFilter.regexFilter("已超期", 8);
+
             } else if ("已归还".equals(selectedStatus)) {
-                statusFilter = RowFilter.regexFilter("已归还", 7);
+                // ★★★ 筛选"已归还" = "已归还" OR 状态包含"新书替换"
+                statusFilter = new RowFilter<DefaultTableModel, Object>() {
+                    @Override
+                    public boolean include(Entry<? extends DefaultTableModel, ? extends Object> entry) {
+                        String returnStatus = (String) entry.getValue(7); // 是否归还
+                        String statusInfo = (String) entry.getValue(8);   // 状态
+
+                        // 包括：已归还 或 新书替换
+                        return "已归还".equals(returnStatus) ||
+                                (statusInfo != null && statusInfo.contains("新书替换"));
+                    }
+                };
+
             } else if ("已遗失".equals(selectedStatus)) {
-                statusFilter = RowFilter.regexFilter("遗失", 7);
+                // ★★★ 筛选"遗失" = "遗失" 且 状态不包含"新书替换"
+                statusFilter = new RowFilter<DefaultTableModel, Object>() {
+                    @Override
+                    public boolean include(Entry<? extends DefaultTableModel, ? extends Object> entry) {
+                        String returnStatus = (String) entry.getValue(7); // 是否归还
+                        String statusInfo = (String) entry.getValue(8);   // 状态
+
+                        // 只包括：遗失 且 不是新书替换
+                        return "遗失".equals(returnStatus) &&
+                                (statusInfo == null || !statusInfo.contains("新书替换"));
+                    }
+                };
             }
         }
 
@@ -270,30 +381,78 @@ public class OverdueManagementPanel extends JPanel {
         sorter.setRowFilter(combinedFilter);
         updateStats();
 
-        // 提示搜索结果
-        if (!searchText.isEmpty() && recordTable.getRowCount() == 0) {
+        // ★★★ 4. 根据不同的筛选条件显示不同的提示信息
+        if (recordTable.getRowCount() == 0) {
+            String message = buildNoResultMessage(searchText, searchType, selectedStatus);
             JOptionPane.showMessageDialog(this,
-                    "未找到" + searchType + "为 [" + searchText + "] 的记录。\n\n提示：请输入完整的" + searchType + "（精准匹配）",
+                    message,
                     "搜索结果",
                     JOptionPane.INFORMATION_MESSAGE);
         }
     }
 
     /**
-     * ★ 更新底部统计信息（包含已归还）
+     * ★★★ 新增：根据筛选条件构建提示信息
+     */
+    private String buildNoResultMessage(String searchText, String searchType, String selectedStatus) {
+        StringBuilder message = new StringBuilder();
+
+        // 情况1：只有搜索关键词（用户名或书名）
+        if (!searchText.isEmpty() && "全部记录".equals(selectedStatus)) {
+            message.append("未找到").append(searchType).append("为 [").append(searchText).append("] 的借阅记录。\n\n");
+            message.append("提示：请输入完整的").append(searchType).append("（精准匹配）");
+        }
+        // 情况2：只有状态筛选
+        else if (searchText.isEmpty() && !"全部记录".equals(selectedStatus)) {
+            message.append("当前没有状态为 [").append(selectedStatus).append("] 的借阅记录。\n\n");
+
+            if ("未归还".equals(selectedStatus)) {
+                message.append("提示：所有图书已归还或遗失");
+            } else if ("已超期".equals(selectedStatus)) {
+                message.append("提示：当前没有超期的借阅记录");
+            } else if ("已归还".equals(selectedStatus)) {
+                message.append("提示：暂无已归还的图书记录（包括新书替换）");
+            } else if ("已遗失".equals(selectedStatus)) {
+                message.append("提示：暂无遗失的图书记录（不包括新书替换）");
+            }
+        }
+        // 情况3：搜索关键词 + 状态筛选
+        else if (!searchText.isEmpty() && !"全部记录".equals(selectedStatus)) {
+            message.append("未找到").append(searchType).append(" [").append(searchText).append("] ");
+            message.append("状态为 [").append(selectedStatus).append("] 的借阅记录。\n\n");
+
+            if ("未归还".equals(selectedStatus)) {
+                message.append("提示：该").append(searchType).append("可能没有未归还的图书，或").append(searchType).append("不存在");
+            } else if ("已超期".equals(selectedStatus)) {
+                message.append("提示：该").append(searchType).append("可能没有超期的图书，或").append(searchType).append("不存在");
+            } else if ("已归还".equals(selectedStatus)) {
+                message.append("提示：该").append(searchType).append("可能没有已归还的图书，或").append(searchType).append("不存在");
+            } else if ("已遗失".equals(selectedStatus)) {
+                message.append("提示：该").append(searchType).append("可能没有遗失的图书，或").append(searchType).append("不存在");
+            }
+        }
+        // 情况4：没有任何筛选条件（不应该出现）
+        else {
+            message.append("没有找到符合条件的借阅记录。");
+        }
+
+        return message.toString();
+    }
+
+    /**
+     * ★ 更新底部统计信息
      */
     private void updateStats() {
         if (statsLabel == null || recordTable == null) {
             return;
         }
 
-        int totalCount = recordTable.getRowCount(); // 筛选后的行数
+        int totalCount = recordTable.getRowCount();
         int unreturnedCount = 0;
         int overdueCount = 0;
         int returnedCount = 0;
         int lostCount = 0;
 
-        // 统计筛选后的数据
         for (int i = 0; i < totalCount; i++) {
             String returnStatus = (String) recordTable.getValueAt(i, 7);
             String statusInfo = (String) recordTable.getValueAt(i, 8);
@@ -310,30 +469,25 @@ public class OverdueManagementPanel extends JPanel {
             }
         }
 
-        // ★ 完整的统计信息
         String statsText = String.format(
                 "当前显示: %d 条  |  未归还: %d 本  |  已超期: %d 本  |  已归还: %d 本  |  已遗失: %d 本",
                 totalCount, unreturnedCount, overdueCount, returnedCount, lostCount
         );
         statsLabel.setText(statsText);
 
-        // 根据状态设置颜色
         if (overdueCount > 0) {
-            statsLabel.setForeground(new Color(192, 57, 43)); // 深红色
+            statsLabel.setForeground(new Color(192, 57, 43));
         } else if (lostCount > 0) {
-            statsLabel.setForeground(new Color(230, 126, 34)); // 橙色
+            statsLabel.setForeground(new Color(230, 126, 34));
         } else if (unreturnedCount > 0) {
-            statsLabel.setForeground(new Color(41, 128, 185)); // 蓝色
+            statsLabel.setForeground(new Color(41, 128, 185));
         } else {
-            statsLabel.setForeground(new Color(39, 174, 96)); // 绿色
+            statsLabel.setForeground(new Color(39, 174, 96));
         }
     }
 
     /**
-     * 处理超期罚款
-     */
-    /**
-     * 处理超期罚款
+     * ★ 处理超期罚款
      */
     private void handleOverdueFine() {
         int row = recordTable.getSelectedRow();
@@ -345,282 +499,174 @@ public class OverdueManagementPanel extends JPanel {
         int modelRow = recordTable.convertRowIndexToModel(row);
 
         // 获取记录信息
-        int borrowId = (int) model.getValueAt(modelRow, 0);      // 记录ID
-        int bookId = (int) model.getValueAt(modelRow, 1);        // 图书ID
-        String title = (String) model.getValueAt(modelRow, 2);   // 书名
-        String username = (String) model.getValueAt(modelRow, 4); // 用户名
-        String returnStatus = (String) model.getValueAt(modelRow, 7); // 是否归还
-        String statusInfo = (String) model.getValueAt(modelRow, 8);   // 状态信息
+        int borrowId = (int) model.getValueAt(modelRow, 0);
+        String bookTitle = (String) model.getValueAt(modelRow, 2);
+        String username = (String) model.getValueAt(modelRow, 4);
+        String returnStatus = (String) model.getValueAt(modelRow, 7);
+        String statusInfo = (String) model.getValueAt(modelRow, 8);
+        String fineStatus = (String) model.getValueAt(modelRow, 9);
 
-        // ★ 检查是否是未归还且超期的记录
-        if (!"未归还".equals(returnStatus)) {
-            JOptionPane.showMessageDialog(this, "该图书已归还，无需处理。", "提示", JOptionPane.INFORMATION_MESSAGE);
+        // ★ 检查是否已归还或遗失
+        if ("已归还".equals(returnStatus)) {
+            JOptionPane.showMessageDialog(this, "该图书已归还，无法再记录罚款。", "提示", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        if (!statusInfo.contains("已超期")) {
+        if ("遗失".equals(returnStatus)) {
+            JOptionPane.showMessageDialog(this, "该图书已标记为遗失，请使用【遗失处理】功能。", "提示", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // ★ 检查是否已记录罚款
+        if (fineStatus != null && fineStatus.contains("待支付")) {
             JOptionPane.showMessageDialog(this,
-                    "该图书未超期，无需处理罚款。\n\n当前状态: " + statusInfo,
+                    "该借阅记录已记录罚款：\n\n" + fineStatus + "\n\n用户归还时会自动支付。",
                     "提示",
                     JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
-        // 提取超期数值（分钟或天数）
-        String numberStr = statusInfo.replaceAll("[^0-9]", "");
-        int overduePeriod = 0;
-        try {
-            overduePeriod = Integer.parseInt(numberStr);
-        } catch (NumberFormatException e) {
-            JOptionPane.showMessageDialog(this, "无法解析超期时长。", "错误", JOptionPane.ERROR_MESSAGE);
+        // ★ 检查是否超期
+        if (!statusInfo.contains("已超期")) {
+            JOptionPane.showMessageDialog(this,
+                    "该借阅记录尚未超期，无需记录罚款。\n\n当前状态：" + statusInfo,
+                    "提示",
+                    JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
-        // ★ 创建罚款处理对话框
-        JDialog fineDialog = new JDialog((Frame) SwingUtilities.getWindowAncestor(this), "处理超期罚款", true);
-        fineDialog.setLayout(new BorderLayout(10, 10));
-        fineDialog.setSize(450, 380);
-        fineDialog.setLocationRelativeTo(this);
-        fineDialog.setResizable(false);
+        // ★ 弹出罚款金额输入对话框
+        String input = JOptionPane.showInputDialog(
+                this,
+                "图书：" + bookTitle + "\n" +
+                        "借阅人：" + username + "\n" +
+                        "当前状态：" + statusInfo + "\n\n" +
+                        "请输入罚款金额（元）：",
+                "记录超期罚款",
+                JOptionPane.QUESTION_MESSAGE
+        );
 
-        // 信息面板
-        JPanel infoPanel = new JPanel();
-        infoPanel.setLayout(new BoxLayout(infoPanel, BoxLayout.Y_AXIS));
-        infoPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 10, 20));
-        infoPanel.setBackground(Color.WHITE);
-
-        // 标题
-        JLabel titleLabel = new JLabel("超期罚款处理");
-        titleLabel.setFont(new Font("微软雅黑", Font.BOLD, 16));
-        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        infoPanel.add(titleLabel);
-        infoPanel.add(Box.createVerticalStrut(15));
-
-        // 借阅信息
-        JLabel[] labels = {
-                new JLabel("借阅记录ID: " + borrowId),
-                new JLabel("图书名称: " + title),
-                new JLabel("借阅人: " + username)
-        };
-
-        for (JLabel label : labels) {
-            label.setFont(new Font("微软雅黑", Font.PLAIN, 12));
-            label.setAlignmentX(Component.LEFT_ALIGNMENT);
-            infoPanel.add(label);
-            infoPanel.add(Box.createVerticalStrut(5));
+        if (input == null || input.trim().isEmpty()) {
+            return;
         }
 
-        infoPanel.add(Box.createVerticalStrut(5));
+        try {
+            double fineAmount = Double.parseDouble(input.trim());
 
-        // 超期信息（红色加粗）
-        JLabel overdueLabel = new JLabel("⚠ 超期时长: " + overduePeriod + " " + SystemConfig.getTimeUnitText());
-        overdueLabel.setForeground(new Color(231, 76, 60));
-        overdueLabel.setFont(new Font("微软雅黑", Font.BOLD, 14));
-        overdueLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        infoPanel.add(overdueLabel);
-        infoPanel.add(Box.createVerticalStrut(15));
-
-        // 罚款输入面板
-        JPanel fineInputPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        fineInputPanel.setBackground(Color.WHITE);
-        fineInputPanel.add(new JLabel("罚款金额（元）: "));
-
-        // 默认罚款金额
-        double defaultFine = overduePeriod * SystemConfig.FINE_PER_UNIT;
-        JTextField txtFineAmount = new JTextField(String.format("%.2f", defaultFine), 10);
-        fineInputPanel.add(txtFineAmount);
-
-        infoPanel.add(fineInputPanel);
-        infoPanel.add(Box.createVerticalStrut(10));
-
-        // 提示信息
-        JLabel tipLabel = new JLabel("💡 提示: 处理罚款后，图书将自动标记为已归还");
-        tipLabel.setForeground(new Color(127, 140, 141));
-        tipLabel.setFont(new Font("微软雅黑", Font.PLAIN, 11));
-        tipLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        infoPanel.add(tipLabel);
-
-        infoPanel.add(Box.createVerticalStrut(5));
-
-        // 罚款标准说明
-        JLabel standardLabel = new JLabel("罚款标准: " + SystemConfig.FINE_PER_UNIT + " 元" + SystemConfig.FINE_UNIT_TEXT);
-        standardLabel.setForeground(new Color(127, 140, 141));
-        standardLabel.setFont(new Font("微软雅黑", Font.PLAIN, 11));
-        standardLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        infoPanel.add(standardLabel);
-
-        // 按钮面板
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 15));
-        buttonPanel.setBackground(Color.WHITE);
-
-        JButton btnConfirm = new JButton("✓ 确认处理");
-        JButton btnCancel = new JButton("✗ 取消");
-
-        btnConfirm.setPreferredSize(new Dimension(120, 35));
-        btnCancel.setPreferredSize(new Dimension(120, 35));
-
-        btnConfirm.addActionListener(e -> {
-            try {
-                String fineText = txtFineAmount.getText().trim();
-                if (fineText.isEmpty()) {
-                    JOptionPane.showMessageDialog(fineDialog, "请输入罚款金额！", "输入错误", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
-
-                double fineAmount = Double.parseDouble(fineText);
-
-                if (fineAmount < 0) {
-                    JOptionPane.showMessageDialog(fineDialog, "罚款金额不能为负数！", "输入错误", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
-
-                // ★ 调用 DAO 方法记录罚款（会自动完成归还）
-                bookDAO.recordOverdueFine(borrowId, fineAmount);
-
-                JOptionPane.showMessageDialog(fineDialog,
-                        "罚款处理成功！\n\n" +
-                                "罚款金额: " + String.format("%.2f", fineAmount) + " 元\n" +
-                                "图书已自动标记为已归还",
-                        "处理成功",
-                        JOptionPane.INFORMATION_MESSAGE);
-
-                fineDialog.dispose();
-                refreshTable(); // 刷新表格
-                updateStats();  // 更新统计信息
-
-            } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(fineDialog, "请输入有效的数字金额！", "输入错误", JOptionPane.ERROR_MESSAGE);
-            } catch (DBException ex) {
-                JOptionPane.showMessageDialog(fineDialog, "处理失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+            if (fineAmount <= 0) {
+                JOptionPane.showMessageDialog(this, "罚款金额必须大于 0！", "错误", JOptionPane.ERROR_MESSAGE);
+                return;
             }
-        });
 
-        btnCancel.addActionListener(e -> fineDialog.dispose());
+            bookDAO.recordOverdueFine(borrowId, fineAmount);
 
-        buttonPanel.add(btnConfirm);
-        buttonPanel.add(btnCancel);
+            JOptionPane.showMessageDialog(
+                    this,
+                    String.format("罚款记录成功！\n\n" +
+                                    "借阅记录ID：%d\n" +
+                                    "罚款金额：%.2f 元\n\n" +
+                                    "用户归还时需支付此罚款。",
+                            borrowId, fineAmount),
+                    "成功",
+                    JOptionPane.INFORMATION_MESSAGE
+            );
 
-        fineDialog.add(infoPanel, BorderLayout.CENTER);
-        fineDialog.add(buttonPanel, BorderLayout.SOUTH);
-        fineDialog.setVisible(true);
+            refreshTable();
+
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "请输入有效的数字金额！", "错误", JOptionPane.ERROR_MESSAGE);
+        } catch (DBException ex) {
+            JOptionPane.showMessageDialog(this, "记录罚款失败：" + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
-
-
-
     /**
-     * 处理图书遗失（罚款或新书替换）
+     * 处理遗失图书
      */
     private void handleBookLoss() {
         int row = recordTable.getSelectedRow();
         if (row < 0) {
-            JOptionPane.showMessageDialog(this,
-                    "请先选择要处理的借阅记录。",
-                    "提示",
-                    JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "请先选择要处理的借阅记录。", "提示", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        // 获取记录信息
-        int bookId = (int) recordTable.getValueAt(row, 1);
-        String bookTitle = (String) recordTable.getValueAt(row, 2);
-        String username = (String) recordTable.getValueAt(row, 4);
-        String returnStatus = (String) recordTable.getValueAt(row, 7);
-        String statusInfo = (String) recordTable.getValueAt(row, 8);
+        int modelRow = recordTable.convertRowIndexToModel(row);
 
-        // ★ 1. 判断是否已归还
+        int borrowId = (int) model.getValueAt(modelRow, 0);
+        int bookId = (int) model.getValueAt(modelRow, 1);
+        String bookTitle = (String) model.getValueAt(modelRow, 2);
+        String username = (String) model.getValueAt(modelRow, 4);
+        String returnStatus = (String) model.getValueAt(modelRow, 7);
+
         if ("已归还".equals(returnStatus)) {
-            JOptionPane.showMessageDialog(this,
-                    String.format("该图书已归还，无法处理遗失。\n\n图书：%s\n借阅人：%s\n状态：%s",
-                            bookTitle, username, statusInfo),
-                    "操作失败",
-                    JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "该图书已归还，无法标记为遗失。", "提示", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        // ★ 2. 判断是否已遗失
         if ("遗失".equals(returnStatus)) {
-            JOptionPane.showMessageDialog(this,
-                    String.format("该图书已标记为遗失，无法重复处理。\n\n图书：%s\n借阅人：%s\n状态：%s",
-                            bookTitle, username, statusInfo),
-                    "操作失败",
-                    JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "该图书已标记为遗失。", "提示", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
-        // ★ 3. 判断是否未归还
-        if (!"未归还".equals(returnStatus)) {
-            JOptionPane.showMessageDialog(this,
-                    String.format("该记录状态异常，无法处理。\n\n图书：%s\n借阅人：%s\n当前状态：%s",
-                            bookTitle, username, returnStatus),
-                    "操作失败",
-                    JOptionPane.WARNING_MESSAGE);
-            return;
-        }
+        String[] options = {"罚款处理", "新书替换", "取消"};
+        int choice = JOptionPane.showOptionDialog(
+                this,
+                "图书：" + bookTitle + "\n借阅人：" + username + "\n\n请选择处理方式：",
+                "遗失处理",
+                JOptionPane.YES_NO_CANCEL_OPTION,
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                options,
+                options[0]
+        );
 
-        // 弹出遗失处理对话框
-        Frame parentFrame = (Frame) SwingUtilities.getWindowAncestor(this);
-        LossResolutionDialog dialog = new LossResolutionDialog(parentFrame, bookId);
-        dialog.setVisible(true);
+        try {
+            if (choice == 0) {
+                // 罚款处理
+                String fineInput = JOptionPane.showInputDialog(this, "请输入遗失罚款金额（元）：");
+                if (fineInput == null || fineInput.trim().isEmpty()) return;
 
-        if (!dialog.isConfirmed()) {
-            return; // 用户取消
-        }
-
-        String resolutionType = dialog.getResolutionType();
-        double amount = dialog.getAmount();
-
-        // 确认处理
-        String message;
-        if ("Replacement".equals(resolutionType)) {
-            message = String.format(
-                    "确认处理图书遗失吗？\n\n图书：%s (ID: %d)\n借阅人：%s\n处理方式：新书替换\n\n" +
-                            "操作说明：\n• 旧书将被标记为'已删除'\n• 新书将自动上架（可借阅）",
-                    bookTitle, bookId, username
-            );
-        } else {
-            message = String.format(
-                    "确认处理图书遗失吗？\n\n图书：%s (ID: %d)\n借阅人：%s\n处理方式：遗失罚款\n罚款金额：%.2f 元\n\n" +
-                            "操作说明：\n• 图书将被标记为'遗失'\n• 借阅记录将自动结清",
-                    bookTitle, bookId, username, amount
-            );
-        }
-
-        int confirm = JOptionPane.showConfirmDialog(this,
-                message,
-                "确认处理",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE);
-
-        if (confirm == JOptionPane.YES_OPTION) {
-            try {
-                bookDAO.handleBookLost(bookId, resolutionType, amount);
-
-                String successMsg;
-                if ("Replacement".equals(resolutionType)) {
-                    successMsg = "新书替换处理成功！\n\n旧书已删除，新书已自动上架。";
-                } else {
-                    successMsg = String.format("遗失罚款处理成功！\n\n罚款金额：%.2f 元\n图书已标记为遗失。", amount);
+                double fineAmount = Double.parseDouble(fineInput.trim());
+                if (fineAmount <= 0) {
+                    JOptionPane.showMessageDialog(this, "罚款金额必须大于 0！");
+                    return;
                 }
 
+                bookDAO.handleBookLoss(borrowId, bookId, fineAmount, false);
                 JOptionPane.showMessageDialog(this,
-                        successMsg,
-                        "处理成功",
+                        String.format("遗失处理成功！\n\n罚款金额：%.2f 元\n图书已标记为遗失。", fineAmount),
+                        "成功",
                         JOptionPane.INFORMATION_MESSAGE);
-                refreshTable();
 
-            } catch (DBException | BusinessException ex) {
-                JOptionPane.showMessageDialog(this,
-                        "处理失败: " + ex.getMessage(),
-                        "错误",
-                        JOptionPane.ERROR_MESSAGE);
+            } else if (choice == 1) {
+                // 新书替换
+                int confirm = JOptionPane.showConfirmDialog(
+                        this,
+                        "确认用户已提供新书替换？\n\n图书将恢复为可借阅状态。",
+                        "确认",
+                        JOptionPane.YES_NO_OPTION
+                );
+
+                if (confirm == JOptionPane.YES_OPTION) {
+                    bookDAO.handleBookLoss(borrowId, bookId, 0, true);
+                    JOptionPane.showMessageDialog(this,
+                            "新书替换处理成功！\n\n图书已恢复为可借阅状态。",
+                            "成功",
+                            JOptionPane.INFORMATION_MESSAGE);
+                }
             }
+
+            refreshTable();
+
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "请输入有效的数字金额！");
+        } catch (DBException | BusinessException ex) {
+            JOptionPane.showMessageDialog(this, "处理失败：" + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
         }
     }
 
-
     /**
-     * 导出数据到CSV文件
+     * 导出为 CSV 文件
      */
     private void exportToCSV() {
         if (recordTable.getRowCount() == 0) {
@@ -632,55 +678,59 @@ public class OverdueManagementPanel extends JPanel {
         }
 
         JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setDialogTitle("保存CSV文件");
-        fileChooser.setSelectedFile(new File("超期遗失记录_" + System.currentTimeMillis() + ".csv"));
+        fileChooser.setDialogTitle("导出借阅记录");
+        fileChooser.setSelectedFile(new File("借阅记录_" + System.currentTimeMillis() + ".csv"));
 
-        int userSelection = fileChooser.showSaveDialog(this);
+        int result = fileChooser.showSaveDialog(this);
+        if (result != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
 
-        if (userSelection == JFileChooser.APPROVE_OPTION) {
-            File fileToSave = fileChooser.getSelectedFile();
+        File file = fileChooser.getSelectedFile();
+        if (!file.getName().endsWith(".csv")) {
+            file = new File(file.getAbsolutePath() + ".csv");
+        }
 
-            try (FileWriter writer = new FileWriter(fileToSave)) {
-                // 写入BOM（UTF-8标记，让Excel正确识别中文）
-                writer.write('\ufeff');
+        try (FileWriter writer = new FileWriter(file)) {
+            // 写入 BOM
+            writer.write('\ufeff');
 
-                // 写入表头
-                for (int i = 0; i < recordTable.getColumnCount(); i++) {
-                    writer.append(recordTable.getColumnName(i));
-                    if (i < recordTable.getColumnCount() - 1) {
-                        writer.append(",");
-                    }
+            // 写入表头
+            for (int i = 0; i < recordTable.getColumnCount(); i++) {
+                writer.write(recordTable.getColumnName(i));
+                if (i < recordTable.getColumnCount() - 1) {
+                    writer.write(",");
                 }
-                writer.append("\n");
-
-                // 写入数据（使用视图中的行，考虑筛选）
-                for (int i = 0; i < recordTable.getRowCount(); i++) {
-                    for (int j = 0; j < recordTable.getColumnCount(); j++) {
-                        Object value = recordTable.getValueAt(i, j);
-                        String cellValue = value != null ? value.toString() : "";
-                        if (cellValue.contains(",")) {
-                            cellValue = "\"" + cellValue + "\"";
-                        }
-                        writer.append(cellValue);
-                        if (j < recordTable.getColumnCount() - 1) {
-                            writer.append(",");
-                        }
-                    }
-                    writer.append("\n");
-                }
-
-                JOptionPane.showMessageDialog(this,
-                        "数据已成功导出到：\n" + fileToSave.getAbsolutePath() +
-                                "\n\n共导出 " + recordTable.getRowCount() + " 条记录",
-                        "导出成功",
-                        JOptionPane.INFORMATION_MESSAGE);
-
-            } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this,
-                        "导出失败: " + ex.getMessage(),
-                        "错误",
-                        JOptionPane.ERROR_MESSAGE);
             }
+            writer.write("\n");
+
+            // 写入数据
+            for (int i = 0; i < recordTable.getRowCount(); i++) {
+                for (int j = 0; j < recordTable.getColumnCount(); j++) {
+                    Object value = recordTable.getValueAt(i, j);
+                    String cellValue = value != null ? value.toString() : "";
+                    if (cellValue.contains(",")) {
+                        cellValue = "\"" + cellValue + "\"";
+                    }
+                    writer.write(cellValue);
+                    if (j < recordTable.getColumnCount() - 1) {
+                        writer.write(",");
+                    }
+                }
+                writer.write("\n");
+            }
+
+            JOptionPane.showMessageDialog(this,
+                    "导出成功！\n\n文件路径：" + file.getAbsolutePath() +
+                            "\n\n共导出 " + recordTable.getRowCount() + " 条记录",
+                    "成功",
+                    JOptionPane.INFORMATION_MESSAGE);
+
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this,
+                    "导出失败：" + ex.getMessage(),
+                    "错误",
+                    JOptionPane.ERROR_MESSAGE);
         }
     }
 }

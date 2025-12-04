@@ -48,9 +48,9 @@ public class SystemConfig {
      */
     public static String getModeDescription() {
         if (IS_TEST_MODE) {
-            return "【测试模式】借阅期限: " + DUE_PERIOD_TEXT + " | 罚款: " + FINE_PER_UNIT + "元" + FINE_UNIT_TEXT;
+            return "【测试模式】借阅期限: " + DUE_PERIOD_TEXT ;
         } else {
-            return "【生产模式】借阅期限: " + DUE_PERIOD_TEXT + " | 罚款: " + FINE_PER_UNIT + "元" + FINE_UNIT_TEXT;
+            return "【生产模式】借阅期限: " + DUE_PERIOD_TEXT ;
         }
     }
 

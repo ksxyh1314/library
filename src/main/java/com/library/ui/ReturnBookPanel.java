@@ -14,10 +14,11 @@ import javax.swing.table.TableRowSorter;
 /**
  * 还书面板
  * 特性：
- * 1. UI 风格与 BorrowBookPanel 保持一致（顶部搜索栏）。
- * 2. 保留了底部的统计信息栏。
+ * 1. UI 风格与 BorrowBookPanel 保持一致（顶部搜索栏）
+ * 2. 保留了底部的统计信息栏
  * 3. ★ 添加应还日期列，显示超期信息
- * 4. ★ 添加标题样式，与 BorrowBookPanel 保持一致
+ * 4. ★ 支持罚款支付功能
+ * 5. ★ 超期图书必须管理员记录罚款后才能归还
  */
 public class ReturnBookPanel extends JPanel {
     private BookDAO bookDAO = new BookDAO();
@@ -39,15 +40,16 @@ public class ReturnBookPanel extends JPanel {
         // ============================================================
         // 1. ★ 顶部标题面板（与 BorrowBookPanel 样式一致）
         // ============================================================
-        // 在 ReturnBookPanel 构造函数中
+
         JPanel titlePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JLabel titleLabel = new JLabel("📤 归还图书");
         titleLabel.setFont(new Font("微软雅黑", Font.BOLD, 16));
 
-        JLabel userInfoLabel = new JLabel("  当前用户: " + currentUser.getUsername() + " (ID: " + currentUser.getId() + ")");
+        JLabel userInfoLabel = new JLabel("  当前用户: " + currentUser.getUsername() +
+                " (ID: " + currentUser.getId() + ")");
         userInfoLabel.setForeground(new Color(127, 140, 141));
 
-// ★ 添加模式提示
+        // ★ 添加模式提示
         JLabel modeLabel = new JLabel("  |  " + SystemConfig.getModeDescription());
         if (SystemConfig.IS_TEST_MODE) {
             modeLabel.setForeground(new Color(231, 76, 60)); // 红色 - 测试模式
@@ -58,8 +60,7 @@ public class ReturnBookPanel extends JPanel {
 
         titlePanel.add(titleLabel);
         titlePanel.add(userInfoLabel);
-        titlePanel.add(modeLabel); // ← 添加模式提示
-
+        titlePanel.add(modeLabel);
 
         // ============================================================
         // 2. 搜索 + 按钮区域
@@ -81,15 +82,15 @@ public class ReturnBookPanel extends JPanel {
         // 3. 提示信息区域
         // ============================================================
         JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JLabel infoLabel = new JLabel("📖 以下为当前未归还的图书，选择后点击【归还选中图书】按钮进行归还");
-        infoLabel.setForeground(new Color(231, 76, 60)); // 红色提示，区分借书界面
+        JLabel infoLabel = new JLabel("📖 以下为当前未归还的图书，选择后点击【归还选中图书】按钮进行归还（超期图书需管理员记录罚款后才能归还）");
+        infoLabel.setForeground(new Color(231, 76, 60));
         infoPanel.add(infoLabel);
 
-        // ★ 组合顶部容器（标题 + 控制按钮 + 提示信息）
+        // ★ 组合顶部容器
         JPanel northContainer = new JPanel(new BorderLayout());
-        northContainer.add(titlePanel, BorderLayout.NORTH);      // ← 标题行
-        northContainer.add(controlPanel, BorderLayout.CENTER);   // ← 搜索和按钮行
-        northContainer.add(infoPanel, BorderLayout.SOUTH);       // ← 提示信息行
+        northContainer.add(titlePanel, BorderLayout.NORTH);
+        northContainer.add(controlPanel, BorderLayout.CENTER);
+        northContainer.add(infoPanel, BorderLayout.SOUTH);
         add(northContainer, BorderLayout.NORTH);
 
         // ============================================================
@@ -98,18 +99,20 @@ public class ReturnBookPanel extends JPanel {
         bookTable = new JTable();
         bookTable.getTableHeader().setReorderingAllowed(false);
         bookTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        bookTable.setRowHeight(25);
+        bookTable.getTableHeader().setFont(new Font("微软雅黑", Font.BOLD, 12));
         add(new JScrollPane(bookTable), BorderLayout.CENTER);
 
         // ============================================================
         // 5. ★ 底部统计信息区域
         // ============================================================
         JPanel bottomPanel = new JPanel(new BorderLayout());
-        bottomPanel.setBackground(new Color(245, 245, 245)); // 浅灰背景
-        bottomPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10)); // 内边距
+        bottomPanel.setBackground(new Color(245, 245, 245));
+        bottomPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
 
         statsLabel = new JLabel("正在加载数据...");
         statsLabel.setFont(new Font("微软雅黑", Font.BOLD, 12));
-        statsLabel.setForeground(new Color(204, 102, 0)); // 深橙色文字
+        statsLabel.setForeground(new Color(204, 102, 0));
 
         bottomPanel.add(statsLabel, BorderLayout.WEST);
         add(bottomPanel, BorderLayout.SOUTH);
@@ -122,10 +125,13 @@ public class ReturnBookPanel extends JPanel {
         btnResetSearch.addActionListener(e -> {
             txtSearch.setText("");
             refreshTable(null);
-            bookTable.clearSelection(); // 取消选中
+            bookTable.clearSelection();
         });
 
         btnReturn.addActionListener(e -> returnBookAction());
+
+        // 回车搜索
+        txtSearch.addActionListener(e -> refreshTable(txtSearch.getText()));
 
         // 初始化加载数据
         refreshTable(null);
@@ -140,7 +146,7 @@ public class ReturnBookPanel extends JPanel {
             DefaultTableModel model = bookDAO.getCurrentBorrowedBooksModel(currentUser.getId());
             bookTable.setModel(model);
 
-            // ★ 设置列宽（根据新的列结构调整）
+            // ★ 设置列宽
             if (bookTable.getColumnCount() > 0) {
                 bookTable.getColumnModel().getColumn(0).setPreferredWidth(80);  // 图书ID
                 bookTable.getColumnModel().getColumn(1).setPreferredWidth(200); // 书名
@@ -152,27 +158,23 @@ public class ReturnBookPanel extends JPanel {
                     bookTable.getColumnModel().getColumn(4).setPreferredWidth(150); // 应还日期
                 }
                 if (bookTable.getColumnCount() > 5) {
-                    bookTable.getColumnModel().getColumn(5).setPreferredWidth(180); // 状态
+                    bookTable.getColumnModel().getColumn(5).setPreferredWidth(250); // 状态
                 }
             }
 
-
-            // 2. 客户端过滤 (实现本地搜索)
+            // 2. 客户端过滤
             TableRowSorter<DefaultTableModel> sorter = new TableRowSorter<>(model);
             bookTable.setRowSorter(sorter);
 
             if (keyword != null && !keyword.trim().isEmpty()) {
                 sorter.setRowFilter(RowFilter.regexFilter("(?i)" + keyword));
 
-                // ✅ 添加搜索无结果的提示弹窗
                 if (bookTable.getRowCount() == 0) {
                     JOptionPane.showMessageDialog(this,
                             "未找到关键词 [" + keyword + "] 的已借图书。",
                             "搜索结果",
                             JOptionPane.INFORMATION_MESSAGE);
                 }
-            } else {
-                bookTable.setRowSorter(null);
             }
 
             // 3. ★ 更新底部统计数据
@@ -187,49 +189,77 @@ public class ReturnBookPanel extends JPanel {
     }
 
     /**
-     * ★ 更新底部统计文字（显示未归还和超期信息）
+     * ★ 更新底部统计文字
      */
     private void updateStats() {
-        int totalCount = bookTable.getRowCount(); // 当前显示的行数
-        int overdueCount = 0; // 超期数量
+        int totalCount = bookTable.getRowCount();
+        int overdueCount = 0;
+        int pendingFineCount = 0; // 待支付罚款数量
+        int needAdminCount = 0;   // 需要管理员处理数量
 
-        // ★ 统计超期图书（假设第5列是状态列，包含"已超期"字样）
+        // ★ 统计超期和待支付罚款图书
         for (int i = 0; i < totalCount; i++) {
-            if (bookTable.getColumnCount() > 4) {
-                Object statusObj = bookTable.getValueAt(i, 4);
+            if (bookTable.getColumnCount() > 5) {
+                Object statusObj = bookTable.getValueAt(i, 5);
                 if (statusObj != null) {
                     String status = statusObj.toString();
                     if (status.contains("已超期")) {
                         overdueCount++;
+                    }
+                    if (status.contains("待支付罚款")) {
+                        pendingFineCount++;
+                    }
+                    if (status.contains("请联系管理员")) {
+                        needAdminCount++;
                     }
                 }
             }
         }
 
         // ★ 显示统计信息
-        String statsText = String.format(
-                "当前未归还图书: %d 本  |  已超期: %d 本",
-                totalCount, overdueCount
-        );
+        String statsText;
+        if (needAdminCount > 0) {
+            statsText = String.format(
+                    "当前未归还图书: %d 本  |  已超期: %d 本  |  需管理员处理: %d 本  |  待支付罚款: %d 本",
+                    totalCount, overdueCount, needAdminCount, pendingFineCount
+            );
+        } else if (pendingFineCount > 0) {
+            statsText = String.format(
+                    "当前未归还图书: %d 本  |  已超期: %d 本  |  待支付罚款: %d 本",
+                    totalCount, overdueCount, pendingFineCount
+            );
+        } else {
+            statsText = String.format(
+                    "当前未归还图书: %d 本  |  已超期: %d 本",
+                    totalCount, overdueCount
+            );
+        }
         statsLabel.setText(statsText);
 
-        // ★ 根据超期情况改变颜色
-        if (overdueCount > 0) {
-            statsLabel.setForeground(new Color(192, 57, 43)); // 红色 - 有超期
+        // ★ 根据状态改变颜色
+        if (needAdminCount > 0) {
+            statsLabel.setForeground(new Color(192, 57, 43)); // 红色 - 需要管理员处理
+        } else if (pendingFineCount > 0) {
+            statsLabel.setForeground(new Color(230, 126, 34)); // 橙色 - 有待支付罚款
+        } else if (overdueCount > 0) {
+            statsLabel.setForeground(new Color(241, 196, 15)); // 黄色 - 有超期
         } else if (totalCount > 0) {
-            statsLabel.setForeground(new Color(230, 126, 34)); // 橙色 - 有未归还
+            statsLabel.setForeground(new Color(52, 152, 219)); // 蓝色 - 有未归还
         } else {
             statsLabel.setForeground(new Color(39, 174, 96)); // 绿色 - 全部已归还
         }
     }
 
     /**
-     * 归还图书动作
+     * ★ 归还图书动作（支持罚款支付，强制检查管理员是否已记录罚款）
      */
     private void returnBookAction() {
         int row = bookTable.getSelectedRow();
         if (row < 0) {
-            JOptionPane.showMessageDialog(this, "请先选择要归还的图书。", "提示", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                    "请先选择要归还的图书。",
+                    "提示",
+                    JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -237,71 +267,106 @@ public class ReturnBookPanel extends JPanel {
         DefaultTableModel model = (DefaultTableModel) bookTable.getModel();
 
         // 获取图书信息
-        int bookId = (int) model.getValueAt(modelRow, 0);      // 第0列：图书ID
-        String title = (String) model.getValueAt(modelRow, 1);  // 第1列：书名
-        String author = (String) model.getValueAt(modelRow, 2); // 第2列：作者
+        int bookId = (int) model.getValueAt(modelRow, 0);
+        String title = (String) model.getValueAt(modelRow, 1);
+        String author = (String) model.getValueAt(modelRow, 2);
+        String status = model.getValueAt(modelRow, 5).toString(); // 状态列
 
-        // 检查是否超期（第5列是状态）
-        String status = "";
-        if (model.getColumnCount() > 5) {
-            Object statusObj = model.getValueAt(modelRow, 5);
-            status = statusObj != null ? statusObj.toString() : "";
-        }
-
-        // ★★★ 关键修改：如果图书超期，阻止归还 ★★★
-        if (status.contains("已超期")) {
-            // 提取超期天数
-            String daysStr = status.replaceAll("[^0-9]", "");
-            int overdueDays = 0;
-            try {
-                overdueDays = Integer.parseInt(daysStr);
-            } catch (NumberFormatException e) {
-                overdueDays = 0;
+        try {
+            // ★ 1. 检查是否需要管理员处理
+            if (status.contains("请联系管理员处理罚款")) {
+                JOptionPane.showMessageDialog(this,
+                        "该图书已超期，但管理员尚未记录罚款。\n\n" +
+                                "请联系管理员在【超期和遗失管理】中记录罚款后，再次尝试归还。\n\n" +
+                                "当前状态：" + status,
+                        "无法归还",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
             }
 
-            // 显示超期提示，不允许直接归还
-            String overdueMessage = String.format(
-                    "⚠ 该图书已超期 %d 天，无法直接归还！\n\n" +
-                            "━━━━━━━━━━━━━━━━━━━━━━\n" +
-                            "书名：%s\n" +
-                            "作者：%s\n" +
-                            "图书ID：%d\n" +
-                            "━━━━━━━━━━━━━━━━━━━━━━\n\n" +
-                            "\u0001F4E2 请联系管理员处理超期罚款后才能归还图书。\n" +
-                            "管理员可在【超期和遗失管理】中处理罚款。",
-                    overdueDays, title, author, bookId
-            );
+            // ★ 2. 查询借阅记录信息（包括罚款）
+            BookDAO.BorrowRecordInfo recordInfo = bookDAO.getBorrowRecordInfo(bookId, currentUser.getId());
 
+            if (recordInfo == null) {
+                JOptionPane.showMessageDialog(this,
+                        "未找到该图书的借阅记录。",
+                        "错误",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            double finePayment = 0;
+
+            // ★ 3. 如果有待支付罚款，弹出支付对话框
+            if (recordInfo.fineAmount > 0 && !recordInfo.finePaid) {
+                // 显示罚款支付对话框
+                int confirm = JOptionPane.showConfirmDialog(
+                        this,
+                        String.format(
+                                "图书：%s\n" +
+                                        "作者：%s\n" +
+                                        "借出日期：%s\n\n" +
+                                        "⚠️ 该图书已超期，需支付罚款：%.2f 元\n\n" +
+                                        "是否确认支付罚款并归还图书？",
+                                recordInfo.bookTitle,
+                                recordInfo.bookAuthor,
+                                recordInfo.borrowTime.toString(),
+                                recordInfo.fineAmount
+                        ),
+                        "支付罚款确认",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE
+                );
+
+                if (confirm != JOptionPane.YES_OPTION) {
+                    return; // 用户取消支付
+                }
+
+                finePayment = recordInfo.fineAmount;
+
+            } else {
+                // 没有罚款，正常归还确认
+                String message = String.format(
+                        "确认归还以下图书吗？\n\n书名：%s\n作者：%s\n图书ID：%d",
+                        title, author, bookId
+                );
+
+                int confirm = JOptionPane.showConfirmDialog(this,
+                        message,
+                        "归还确认",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE);
+
+                if (confirm != JOptionPane.YES_OPTION) {
+                    return;
+                }
+            }
+
+            // ★ 4. 执行归还操作（传递罚款金额）
+            bookDAO.returnBook(bookId, currentUser.getId(), finePayment);
+
+            // ★ 5. 成功提示
+            if (finePayment > 0) {
+                JOptionPane.showMessageDialog(this,
+                        String.format("归还成功！\n\n图书: %s\n已支付罚款: %.2f 元", title, finePayment),
+                        "归还成功",
+                        JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this,
+                        "图书 [" + title + "] 归还成功！",
+                        "归还成功",
+                        JOptionPane.INFORMATION_MESSAGE);
+            }
+
+            // ★ 6. 刷新表格
+            refreshTable(null);
+            txtSearch.setText("");
+
+        } catch (DBException | BusinessException ex) {
             JOptionPane.showMessageDialog(this,
-                    overdueMessage,
-                    "超期图书无法归还",
-                    JOptionPane.WARNING_MESSAGE);
-            return; // ← 阻止归还操作
-        }
-
-        // ★ 正常图书的确认对话框（未超期才能执行到这里）
-        String message = String.format(
-                "确认归还以下图书吗？\n\n书名：%s\n作者：%s\n图书ID：%d",
-                title, author, bookId
-        );
-
-        int confirm = JOptionPane.showConfirmDialog(this, message, "归还确认", JOptionPane.YES_NO_OPTION);
-
-        if (confirm == JOptionPane.YES_OPTION) {
-            try {
-                // 只有未超期的图书才能通过这里归还
-                bookDAO.returnBook(bookId, currentUser.getId());
-
-                // 归还成功后刷新
-                refreshTable(null);
-                txtSearch.setText("");
-
-                JOptionPane.showMessageDialog(this, "归还成功！", "成功", JOptionPane.INFORMATION_MESSAGE);
-            } catch (DBException | BusinessException ex) {
-                JOptionPane.showMessageDialog(this, "归还失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
-            }
+                    "归还失败: " + ex.getMessage(),
+                    "错误",
+                    JOptionPane.ERROR_MESSAGE);
         }
     }
-
-
 }

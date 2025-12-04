@@ -7,16 +7,20 @@ import com.library.util.SessionManager;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableRowSorter;
 import java.awt.*;
 
 /**
  * 图书管理面板 - 仅包含图书的增删改查功能
  * 管理员：可以新增、修改、删除图书
  * 普通用户：只能查看可借阅的图书
+ * ★ 优化：表格显示与借阅查询面板一致
  */
 public class BookPanel extends JPanel {
     private BookDAO bookDAO = new BookDAO();
     private JTable bookTable;
+    private DefaultTableModel model;
+    private TableRowSorter<DefaultTableModel> sorter;
     private User currentUser;
     private boolean isAdmin;
 
@@ -84,8 +88,8 @@ public class BookPanel extends JPanel {
         // ★ 提示信息面板（放在搜索框下面）
         JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         String infoText = isAdmin ?
-                "💡 提示：您可以新增、修改、删除图书信息（遗失/已删除的图书无法修改或删除）" :
-                "💡 提示：您可以查看图书列表";
+                "📋 提示：您可以新增、修改、删除图书信息（遗失/已删除的图书无法修改或删除）" :
+                "📋 提示：您可以查看可借阅的图书列表";
         JLabel infoLabel = new JLabel(infoText);
         infoLabel.setForeground(new Color(52, 152, 219));
         infoPanel.add(infoLabel);
@@ -101,8 +105,17 @@ public class BookPanel extends JPanel {
         // ============================================================
         bookTable = new JTable();
         bookTable.getTableHeader().setReorderingAllowed(false);
+        bookTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        bookTable.setRowHeight(28); // ★ 增加行高
+        bookTable.getTableHeader().setFont(new Font("微软雅黑", Font.BOLD, 12));
+
         refreshTable(null);
-        add(new JScrollPane(bookTable), BorderLayout.CENTER);
+
+        // ★ 使用滚动面板
+        JScrollPane scrollPane = new JScrollPane(bookTable);
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        add(scrollPane, BorderLayout.CENTER);
 
         // ============================================================
         // 3. 事件监听器绑定
@@ -115,7 +128,7 @@ public class BookPanel extends JPanel {
         btnResetSearch.addActionListener(e -> {
             txtSearch.setText("");
             refreshTable(null);
-            bookTable.clearSelection(); // 添加这行，取消选中
+            bookTable.clearSelection();
         });
 
         // 管理员操作
@@ -135,23 +148,68 @@ public class BookPanel extends JPanel {
     }
 
     /**
-     * 刷新表格数据
-     * @param keyword 搜索关键词，null 或空字符串表示查询所有
+     * ★★★ 刷新表格数据（铺满整个界面）
      */
     private void refreshTable(String keyword) {
-        // 普通用户只能看到"可借阅"的图书，管理员可以看到所有图书
-        boolean onlyAvailable = !isAdmin;
-        DefaultTableModel model = bookDAO.getBookModel(keyword, onlyAvailable);
-        bookTable.setModel(model);
+        try {
+            // 普通用户只能看到"可借阅"的图书，管理员可以看到所有图书
+            boolean onlyAvailable = !isAdmin;
+            model = bookDAO.getBookModel(keyword, onlyAvailable);
+            bookTable.setModel(model);
 
-        // 处理搜索结果为空的情况
-        if (model.getRowCount() == 0 && keyword != null && !keyword.trim().isEmpty()) {
+            // ★★★ 优化列宽设置
+            if (bookTable.getColumnCount() > 0) {
+                // 图书编号
+                bookTable.getColumnModel().getColumn(0).setPreferredWidth(80);
+                bookTable.getColumnModel().getColumn(0).setMinWidth(60);
+
+                // 书名
+                bookTable.getColumnModel().getColumn(1).setPreferredWidth(300);
+                bookTable.getColumnModel().getColumn(1).setMinWidth(200);
+
+                // 作者
+                bookTable.getColumnModel().getColumn(2).setPreferredWidth(150);
+                bookTable.getColumnModel().getColumn(2).setMinWidth(100);
+
+                // 状态
+                bookTable.getColumnModel().getColumn(3).setPreferredWidth(120);
+                bookTable.getColumnModel().getColumn(3).setMinWidth(80);
+            }
+
+            // ★★★ 关键：使用 AUTO_RESIZE_SUBSEQUENT_COLUMNS 铺满界面
+            bookTable.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
+
+            // ★★★ 设置所有列左对齐
+            javax.swing.table.DefaultTableCellRenderer leftRenderer = new javax.swing.table.DefaultTableCellRenderer();
+            leftRenderer.setHorizontalAlignment(javax.swing.SwingConstants.LEFT);
+
+            for (int i = 0; i < bookTable.getColumnCount(); i++) {
+                bookTable.getColumnModel().getColumn(i).setCellRenderer(leftRenderer);
+            }
+
+            // ★ 设置排序器
+            sorter = new TableRowSorter<>(model);
+            bookTable.setRowSorter(sorter);
+
+            // 处理搜索结果为空的情况
+            if (model.getRowCount() == 0 && keyword != null && !keyword.trim().isEmpty()) {
+                JOptionPane.showMessageDialog(this,
+                        "未找到符合关键词 [" + keyword + "] 的图书。",
+                        "搜索结果",
+                        JOptionPane.INFORMATION_MESSAGE);
+            }
+
+        } catch (Exception ex) {
             JOptionPane.showMessageDialog(this,
-                    "未找到符合关键词 [" + keyword + "] 的图书。",
-                    "搜索结果",
-                    JOptionPane.INFORMATION_MESSAGE);
+                    "加载数据失败: " + ex.getMessage(),
+                    "错误",
+                    JOptionPane.ERROR_MESSAGE);
+            ex.printStackTrace();
         }
     }
+
+
+
 
     // ============================================================
     // 管理员操作方法
@@ -205,7 +263,7 @@ public class BookPanel extends JPanel {
         // 检查列数
         if (bookTable.getColumnCount() < 4) {
             JOptionPane.showMessageDialog(this,
-                    "错误：表格缺少状态列！\n当前列数: " + bookTable.getColumnCount() + "\n需要至少4列（ID、书名、作者、状态）",
+                    "错误：表格缺少状态列！\n当前列数: " + bookTable.getColumnCount() + "\n需要至少4列（图书编号、书名、作者、状态）",
                     "系统错误",
                     JOptionPane.ERROR_MESSAGE);
             return;
@@ -222,7 +280,7 @@ public class BookPanel extends JPanel {
         // ★ 检查图书状态是否为"遗失"
         if ("遗失".equals(status)) {
             JOptionPane.showMessageDialog(this,
-                    String.format("该图书已遗失，无法修改信息。\n\n图书ID: %d\n书名: %s\n作者: %s\n状态: %s",
+                    String.format("该图书已遗失，无法修改信息。\n\n图书编号: %d\n书名: %s\n作者: %s\n状态: %s",
                             bookId, oldTitle, oldAuthor, status),
                     "操作失败",
                     JOptionPane.WARNING_MESSAGE);
@@ -232,7 +290,7 @@ public class BookPanel extends JPanel {
         // ★ 检查图书状态是否为"已删除"
         if ("已删除".equals(status)) {
             JOptionPane.showMessageDialog(this,
-                    String.format("该图书已删除，无法修改信息。\n\n图书ID: %d\n书名: %s\n作者: %s\n状态: %s",
+                    String.format("该图书已删除，无法修改信息。\n\n图书编号: %d\n书名: %s\n作者: %s\n状态: %s",
                             bookId, oldTitle, oldAuthor, status),
                     "操作失败",
                     JOptionPane.WARNING_MESSAGE);
@@ -241,7 +299,7 @@ public class BookPanel extends JPanel {
 
         Frame parent = JOptionPane.getFrameForComponent(this);
         BookInputDialog dialog = new BookInputDialog(parent,
-                "修改图书信息 (ID: " + bookId + ")",
+                "修改图书信息 (编号: " + bookId + ")",
                 oldTitle,
                 oldAuthor);
         dialog.setVisible(true);
@@ -300,7 +358,7 @@ public class BookPanel extends JPanel {
         // ★ 检查图书状态是否为"遗失"
         if ("遗失".equals(status)) {
             JOptionPane.showMessageDialog(this,
-                    String.format("该图书已遗失，无法删除。\n\n图书ID: %d\n书名: %s\n状态: %s\n\n提示：已遗失的图书已被系统标记，无需手动删除。",
+                    String.format("该图书已遗失，无法删除。\n\n图书编号: %d\n书名: %s\n状态: %s\n\n提示：已遗失的图书已被系统标记，无需手动删除。",
                             bookId, title, status),
                     "操作失败",
                     JOptionPane.WARNING_MESSAGE);
@@ -310,7 +368,7 @@ public class BookPanel extends JPanel {
         // ★ 检查图书状态是否为"已删除"
         if ("已删除".equals(status)) {
             JOptionPane.showMessageDialog(this,
-                    String.format("该图书已删除，无法重复删除。\n\n图书ID: %d\n书名: %s\n状态: %s",
+                    String.format("该图书已删除，无法重复删除。\n\n图书编号: %d\n书名: %s\n状态: %s",
                             bookId, title, status),
                     "操作失败",
                     JOptionPane.WARNING_MESSAGE);
@@ -320,7 +378,7 @@ public class BookPanel extends JPanel {
         // ★ 检查图书状态是否为"已借出"
         if ("已借出".equals(status)) {
             int confirm = JOptionPane.showConfirmDialog(this,
-                    String.format("该图书当前已借出，确认删除吗？\n\n图书ID: %d\n书名: %s\n状态: %s\n\n⚠️ 删除后借阅记录仍会保留，但图书将无法再次借阅。",
+                    String.format("该图书当前已借出，确认删除吗？\n\n图书编号: %d\n书名: %s\n状态: %s\n\n⚠️ 删除后借阅记录仍会保留，但图书将无法再次借阅。",
                             bookId, title, status),
                     "删除确认",
                     JOptionPane.YES_NO_OPTION,

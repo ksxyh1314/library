@@ -221,24 +221,144 @@ public class UserDAO {
     }
 
     /**
-     * 删除用户
+     * ✅ 删除用户（增强版）
+     * 改进：
+     * 1. 检查用户是否有未归还的图书
+     * 2. 检查用户是否有待支付的罚款（超期罚款、遗失罚款）
+     * 3. 只要所有图书已归还且所有罚款已支付，就允许删除（即使有历史借阅记录）
+     * 4. 记录详细的日志信息
      */
-    public void deleteUser(int userId) throws DBException {
-        String sql = "DELETE FROM users WHERE id=?";
-        try (Connection conn = DBHelper.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, userId);
-            int rows = ps.executeUpdate();
-            if (rows == 0) throw new DBException("删除失败，用户可能不存在");
-            logDAO.logOperation("删除用户 ID: " + userId);
+    public void deleteUser(int userId) throws DBException, BusinessException {
+        Connection conn = null;
+        String username = "用户ID:" + userId; // 默认值
+
+        try {
+            conn = DBHelper.getConnection();
+
+            // ✅ 第一步：获取用户名（用于日志记录和错误提示）
+            String getUsernameSql = "SELECT username FROM users WHERE id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(getUsernameSql)) {
+                ps.setInt(1, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        username = rs.getString("username");
+                    } else {
+                        throw new DBException("删除失败：用户不存在");
+                    }
+                }
+            }
+
+            // ✅ 第二步：检查是否有未归还的图书
+            String checkBorrowSql = "SELECT COUNT(*) AS unreturned_count FROM borrow_records " +
+                    "WHERE user_id = ? AND is_returned = 0";
+
+            int unreturnedCount = 0;
+            try (PreparedStatement checkPs = conn.prepareStatement(checkBorrowSql)) {
+                checkPs.setInt(1, userId);
+                try (ResultSet rs = checkPs.executeQuery()) {
+                    if (rs.next()) {
+                        unreturnedCount = rs.getInt("unreturned_count");
+                    }
+                }
+            }
+
+            // ✅ 如果有未归还图书，记录日志并抛出业务异常
+            if (unreturnedCount > 0) {
+                logDAO.logOperation(String.format(
+                        "尝试删除用户 [%s] (ID:%d) 失败：存在 %d 本未归还图书",
+                        username, userId, unreturnedCount
+                ));
+
+                throw new BusinessException(
+                        String.format("删除失败：用户 [%s] 还有 %d 本图书未归还。\n\n" +
+                                        "请先让用户归还所有图书后再进行删除操作。",
+                                username, unreturnedCount)
+                );
+            }
+
+            // ✅ 第三步：检查是否有待支付的罚款
+            String checkFineSql = "SELECT COUNT(*) AS unpaid_fine_count FROM borrow_records " +
+                    "WHERE user_id = ? AND fine_amount > 0 AND fine_paid = 0";
+
+            int unpaidFineCount = 0;
+            try (PreparedStatement checkPs = conn.prepareStatement(checkFineSql)) {
+                checkPs.setInt(1, userId);
+                try (ResultSet rs = checkPs.executeQuery()) {
+                    if (rs.next()) {
+                        unpaidFineCount = rs.getInt("unpaid_fine_count");
+                    }
+                }
+            }
+
+            // ✅ 如果有待支付罚款，记录日志并抛出业务异常
+            if (unpaidFineCount > 0) {
+                // 查询具体的罚款详情
+                String fineDetailsSql = "SELECT SUM(fine_amount) AS total_fine FROM borrow_records " +
+                        "WHERE user_id = ? AND fine_amount > 0 AND fine_paid = 0";
+
+                double totalFine = 0;
+                try (PreparedStatement ps = conn.prepareStatement(fineDetailsSql)) {
+                    ps.setInt(1, userId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            totalFine = rs.getDouble("total_fine");
+                        }
+                    }
+                }
+
+                logDAO.logOperation(String.format(
+                        "尝试删除用户 [%s] (ID:%d) 失败：存在 %d 笔待支付罚款，总计 %.2f 元",
+                        username, userId, unpaidFineCount, totalFine
+                ));
+
+                throw new BusinessException(
+                        String.format("删除失败：用户 [%s] 还有 %d 笔罚款待支付（总计 %.2f 元）。\n\n" +
+                                        "请先让用户支付所有罚款后再进行删除操作。\n" +
+                                        "罚款类型可能包括：超期罚款、遗失罚款等。",
+                                username, unpaidFineCount, totalFine)
+                );
+            }
+
+            // ✅ 第四步：执行删除操作（此时允许删除，即使有已归还的借阅记录）
+            String deleteSql = "DELETE FROM users WHERE id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(deleteSql)) {
+                ps.setInt(1, userId);
+                int rows = ps.executeUpdate();
+
+                if (rows == 0) {
+                    throw new DBException("删除失败：用户可能不存在");
+                }
+
+                // ✅ 记录成功日志
+                logDAO.logOperation(String.format(
+                        "成功删除用户 [%s] (ID:%d)",
+                        username, userId
+                ));
+            }
+
+        } catch (BusinessException e) {
+            // 业务异常直接抛出
+            throw e;
         } catch (SQLException e) {
+            // ✅ 记录数据库异常日志
+            logDAO.logOperation(String.format(
+                    "删除用户 [%s] (ID:%d) 失败：数据库错误 - %s",
+                    username, userId, e.getMessage()
+            ));
+
+            // 外键约束错误（虽然已经检查了未归还图书，但保留此判断作为双保险）
             if (e.getErrorCode() == 1451) {
-                throw new DBException("删除失败：该用户有未处理的借阅记录，请先处理。", e);
+                throw new DBException("删除失败：该用户存在关联数据（借阅记录等），请先处理。", e);
             }
             throw new DBException("删除用户失败: " + e.getMessage(), e);
+        } finally {
+            try {
+                if (conn != null) conn.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
         }
     }
-
     /**
      * ✅ 管理员启用/禁用用户（0或1）
      * 注意：此方法不应用于"已注销"状态的用户

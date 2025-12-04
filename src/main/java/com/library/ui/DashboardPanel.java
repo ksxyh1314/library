@@ -16,7 +16,7 @@ public class DashboardPanel extends JPanel {
         JPanel headerPanel = new JPanel(new BorderLayout());
         JLabel title = new JLabel("图书馆数据概览");
         title.setFont(new Font("微软雅黑", Font.BOLD, 24));
-        JButton btnRefresh = new JButton("刷新数据");
+        JButton btnRefresh = new JButton("🔄 刷新数据");
 
         headerPanel.add(title, BorderLayout.WEST);
         headerPanel.add(btnRefresh, BorderLayout.EAST);
@@ -34,18 +34,31 @@ public class DashboardPanel extends JPanel {
     }
 
     /**
-     * 加载并刷新数据
+     * ★★★ 加载并刷新数据（修复：使用正确的状态值）
      */
     private void loadData() {
         new Thread(() -> {
-            int total = bookDAO.getBookCountByStatus(null);
-            int available = bookDAO.getBookCountByStatus("可借阅");
-            int borrowed = bookDAO.getBookCountByStatus("已借出");
-            int lost = bookDAO.getBookCountByStatus("遗失");
+            try {
+                // ★ 使用数据库中的实际状态值
+                int total = bookDAO.getBookCountByStatus(null);         // 总数
+                int available = bookDAO.getBookCountByStatus("available"); // 可借阅
+                int borrowed = bookDAO.getBookCountByStatus("borrowed");   // 已借出
+                int lost = bookDAO.getBookCountByStatus("lost");           // 遗失
 
-            SwingUtilities.invokeLater(() -> {
-                barChartPanel.setData(total, available, borrowed, lost);
-            });
+                SwingUtilities.invokeLater(() -> {
+                    barChartPanel.setData(total, available, borrowed, lost);
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
+                SwingUtilities.invokeLater(() -> {
+                    JOptionPane.showMessageDialog(
+                            DashboardPanel.this,
+                            "加载数据失败: " + e.getMessage(),
+                            "错误",
+                            JOptionPane.ERROR_MESSAGE
+                    );
+                });
+            }
         }).start();
     }
 
@@ -68,6 +81,7 @@ public class DashboardPanel extends JPanel {
 
         public BarChartPanel() {
             setBackground(Color.WHITE);
+            setPreferredSize(new Dimension(800, 500)); // ★ 设置最小尺寸
         }
 
         public void setData(int total, int available, int borrowed, int lost) {
@@ -94,13 +108,13 @@ public class DashboardPanel extends JPanel {
             // ★ 调整布局参数
             int topMargin = 80;        // 顶部留白（给标题）
             int bottomMargin = 80;     // 底部留白（给标签）
-            int leftMargin = 60;       // 左侧留白
+            int leftMargin = 80;       // 左侧留白（给Y轴刻度）
             int rightMargin = 60;      // 右侧留白
 
             int chartWidth = width - leftMargin - rightMargin;
             int chartHeight = height - topMargin - bottomMargin;
 
-            int barWidth = chartWidth / 6; // 4个柱子，留更多间距
+            int barWidth = Math.min(80, chartWidth / 6); // 柱子宽度，最大80
             int maxBarHeight = chartHeight;
 
             // ★ 绘制图表标题（居中，距离顶部更远）
@@ -110,9 +124,11 @@ public class DashboardPanel extends JPanel {
             int titleWidth = g2d.getFontMetrics().stringWidth(chartTitle);
             g2d.drawString(chartTitle, (width - titleWidth) / 2, 40);
 
-            // ★ 绘制柱形图
+            // ★★★ 绘制柱形图
             for (int i = 0; i < values.length; i++) {
                 int barHeight = maxValue > 0 ? (int) ((double) values[i] / maxValue * maxBarHeight) : 0;
+
+                // ★ 计算柱子的X坐标（均匀分布）
                 int x = leftMargin + (i * chartWidth / 4) + (chartWidth / 8) - (barWidth / 2);
                 int y = topMargin + maxBarHeight - barHeight;
 
@@ -145,7 +161,10 @@ public class DashboardPanel extends JPanel {
             g2d.drawLine(leftMargin, topMargin + maxBarHeight,
                     width - rightMargin, topMargin + maxBarHeight);
 
-            // ★ 绘制Y轴刻度线（可选）
+            // ★ 绘制Y轴
+            g2d.drawLine(leftMargin, topMargin, leftMargin, topMargin + maxBarHeight);
+
+            // ★ 绘制Y轴刻度线
             g2d.setFont(new Font("Arial", Font.PLAIN, 11));
             g2d.setColor(new Color(150, 150, 150));
             for (int i = 0; i <= 5; i++) {
@@ -159,6 +178,15 @@ public class DashboardPanel extends JPanel {
                 String scaleStr = String.valueOf(scaleValue);
                 int scaleWidth = g2d.getFontMetrics().stringWidth(scaleStr);
                 g2d.drawString(scaleStr, leftMargin - scaleWidth - 10, scaleY + 5);
+            }
+
+            // ★★★ 如果数据为空，显示提示信息
+            if (total == 0) {
+                g2d.setFont(new Font("微软雅黑", Font.PLAIN, 16));
+                g2d.setColor(new Color(150, 150, 150));
+                String emptyMsg = "暂无数据，请添加图书";
+                int msgWidth = g2d.getFontMetrics().stringWidth(emptyMsg);
+                g2d.drawString(emptyMsg, (width - msgWidth) / 2, height / 2);
             }
         }
 

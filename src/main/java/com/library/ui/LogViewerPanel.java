@@ -64,11 +64,29 @@ public class LogViewerPanel extends JPanel {
         // ============================================================
         // 2. 中间表格
         // ============================================================
-        logTable = new JTable();
+        logTable = new JTable() {
+            // ★★★ 禁用自动滚动到选中行
+            @Override
+            public void changeSelection(int rowIndex, int columnIndex, boolean toggle, boolean extend) {
+                super.changeSelection(rowIndex, columnIndex, toggle, extend);
+                // 不调用 scrollRectToVisible，防止自动滚动
+            }
+        };
+
         logTable.getTableHeader().setReorderingAllowed(false);
         logTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION); // 允许多选
+        logTable.setRowHeight(25);
+        logTable.getTableHeader().setFont(new Font("微软雅黑", Font.BOLD, 12));
+
+        // ★★★ 禁用自动滚动到选中单元格
+        logTable.setAutoscrolls(false);
+
         refreshTable();
-        add(new JScrollPane(logTable), BorderLayout.CENTER);
+
+        JScrollPane scrollPane = new JScrollPane(logTable);
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        add(scrollPane, BorderLayout.CENTER);
 
         // ============================================================
         // 3. 事件监听器
@@ -85,9 +103,54 @@ public class LogViewerPanel extends JPanel {
         DefaultTableModel model = logDAO.getLogModel();
         logTable.setModel(model);
 
+        // ★★★ 设置列宽：ID窄、用户名窄、操作内容自动填充、时间固定
+        if (logTable.getColumnCount() >= 4) {
+            // 第0列：日志ID - 很窄
+            logTable.getColumnModel().getColumn(0).setPreferredWidth(50);
+            logTable.getColumnModel().getColumn(0).setMinWidth(40);
+            logTable.getColumnModel().getColumn(0).setMaxWidth(70);
+
+            // 第1列：用户名 - 窄
+            logTable.getColumnModel().getColumn(1).setPreferredWidth(120);
+            logTable.getColumnModel().getColumn(1).setMinWidth(100);
+            logTable.getColumnModel().getColumn(1).setMaxWidth(150);
+
+            // 第2列：操作内容 - 不设置最大宽度，让它自动填充
+            logTable.getColumnModel().getColumn(2).setPreferredWidth(600);
+            logTable.getColumnModel().getColumn(2).setMinWidth(400);
+            // ★ 不设置 maxWidth，让它可以自动扩展
+
+            // 第3列：操作时间 - 固定宽度
+            logTable.getColumnModel().getColumn(3).setPreferredWidth(170);
+            logTable.getColumnModel().getColumn(3).setMinWidth(150);
+            logTable.getColumnModel().getColumn(3).setMaxWidth(190);
+        }
+
+        // ★★★ 关键：使用 AUTO_RESIZE_LAST_COLUMN 模式
+        // 这样操作内容列会自动填充剩余空间，铺满面板
+        logTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+
+        // 设置左对齐
+        javax.swing.table.DefaultTableCellRenderer leftRenderer =
+                new javax.swing.table.DefaultTableCellRenderer();
+        leftRenderer.setHorizontalAlignment(javax.swing.SwingConstants.LEFT);
+
+        for (int i = 0; i < logTable.getColumnCount(); i++) {
+            logTable.getColumnModel().getColumn(i).setCellRenderer(leftRenderer);
+        }
+
         // 更新统计信息
         int count = logDAO.getLogCount();
         lblLogCount.setText("日志总数: " + count + " 条");
+
+        // 根据日志数量改变颜色
+        if (count > 1000) {
+            lblLogCount.setForeground(new Color(231, 76, 60)); // 红色
+        } else if (count > 500) {
+            lblLogCount.setForeground(new Color(230, 126, 34)); // 橙色
+        } else {
+            lblLogCount.setForeground(new Color(52, 152, 219)); // 蓝色
+        }
     }
 
     /**

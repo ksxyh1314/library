@@ -28,14 +28,17 @@ public class MainFrame extends JFrame {
 
         tabs = new JTabbedPane();
 
-        // 核心分离逻辑：根据角色加载标签页 (保持不变)
+        // 核心分离逻辑：根据角色加载标签页
         if ("admin".equals(user.getRole())) {
             // ========== 管理员界面 ==========
             tabs.addTab("📚 图书管理", new BookPanel(user));
             tabs.addTab("📊 借阅查询", new AdminStatusPanel());
             tabs.addTab("⏰ 超期遗失", new OverdueManagementPanel());
             tabs.addTab("📈 数据统计", new DashboardPanel());
-            tabs.addTab("👥 用户管理", new UserManagerPanel());
+
+            // ✅ 修复：在这里创建 UserManagerPanel，传入当前用户ID
+            tabs.addTab("👥 用户管理", new UserManagerPanel(currentUser.getId()));
+
             tabs.addTab("📝 系统日志", new LogViewerPanel());
             tabs.addTab("👤 个人中心", new PersonalCenterPanel(this));
         } else {
@@ -50,13 +53,11 @@ public class MainFrame extends JFrame {
     }
 
     /**
-     * 创建菜单栏，分离“注销账户”（永久禁用）和“返回登录界面”（临时退出）
+     * 创建菜单栏，分离"注销账户"（永久禁用）和"返回登录界面"（临时退出）
      */
     private void createMenuBar() {
         JMenuBar menuBar = new JMenuBar();
         JMenu accountMenu = new JMenu("账户/系统");
-
-
 
         // 1. 返回登录界面 (仅清除会话)
         JMenuItem logoutItem = new JMenuItem("退出登录", KeyEvent.VK_R);
@@ -65,6 +66,7 @@ public class MainFrame extends JFrame {
         // 2. 退出系统
         JMenuItem exitItem = new JMenuItem("退出系统", KeyEvent.VK_Q);
         exitItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Q, Toolkit.getDefaultToolkit().getMenuShortcutKeyMask()));
+
         // 3. 注销账户 (永久禁用功能)
         JMenuItem deactivateItem = new JMenuItem("注销账户", KeyEvent.VK_D);
         deactivateItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_D, Toolkit.getDefaultToolkit().getMenuShortcutKeyMask()));
@@ -176,7 +178,6 @@ public class MainFrame extends JFrame {
         // 3. 关闭当前主窗口
         dispose();
     }
-
 
     /**
      * 允许其他面板更新主窗口标题（例如在用户名修改成功后）。

@@ -13,8 +13,7 @@ import java.util.regex.Pattern;
 
 /**
  * 读者借阅记录面板 - 管理员查看所有用户的借阅历史
- * 功能：显示所有借阅记录、按用户名搜索、导出记录
- * ★ 修改：显示归还时间而不是应还时间
+ * ★★★ 修复：筛选逻辑使用正确的列索引
  */
 public class AdminStatusPanel extends JPanel {
     private BookDAO bookDAO = new BookDAO();
@@ -37,35 +36,28 @@ public class AdminStatusPanel extends JPanel {
         titleLabel.setFont(new Font("微软雅黑", Font.BOLD, 16));
         titlePanel.add(titleLabel);
 
-        // ★ 搜索和筛选面板（单独一行）
+        // 搜索和筛选面板
         JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
 
-        // 添加"用户名全称:"标签
         searchPanel.add(new JLabel("用户名全称:"));
-
-        // 用户名搜索框
         txtSearchUser = new JTextField(15);
         searchPanel.add(txtSearchUser);
 
         JButton btnSearch = new JButton("🔍 搜索用户");
         searchPanel.add(btnSearch);
 
-        // 分隔符
         searchPanel.add(new JLabel("  |  "));
 
-        // ★ 状态筛选（修改选项文字）
         searchPanel.add(new JLabel("筛选状态:"));
         cmbStatusFilter = new JComboBox<>(new String[]{"全部记录", "未归还", "已归还", "已遗失"});
         searchPanel.add(cmbStatusFilter);
 
-        // 分隔符
         searchPanel.add(new JLabel("  |  "));
 
-        // ★ 重置按钮（与超期遗失面板样式一致）
         JButton btnReset = new JButton("↺ 重置");
         searchPanel.add(btnReset);
 
-        // ★ 操作按钮面板
+        // 操作按钮面板
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
         JButton btnRefresh = new JButton("🔄 刷新数据");
         JButton btnExport = new JButton("📤 导出记录");
@@ -96,8 +88,14 @@ public class AdminStatusPanel extends JPanel {
         table = new JTable();
         table.getTableHeader().setReorderingAllowed(false);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.setRowHeight(28);
+        table.getTableHeader().setFont(new Font("微软雅黑", Font.BOLD, 12));
         refreshTable();
-        add(new JScrollPane(table), BorderLayout.CENTER);
+
+        JScrollPane scrollPane = new JScrollPane(table);
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        add(scrollPane, BorderLayout.CENTER);
 
         // --- 4. 底部统计信息 ---
         JPanel bottomPanel = new JPanel(new BorderLayout());
@@ -110,33 +108,25 @@ public class AdminStatusPanel extends JPanel {
 
         // ============ 事件监听 ============
 
-        // 搜索按钮
         btnSearch.addActionListener(e -> performSearch());
-
-        // 搜索框回车
         txtSearchUser.addActionListener(e -> performSearch());
 
-        // ★ 统一的重置按钮
         btnReset.addActionListener(e -> {
             txtSearchUser.setText("");
             cmbStatusFilter.setSelectedIndex(0);
-            table.clearSelection(); // 添加这行
+            table.clearSelection();
             performSearch();
         });
 
-        // 状态筛选
         cmbStatusFilter.addActionListener(e -> performSearch());
 
-        // 刷新按钮
         btnRefresh.addActionListener(e -> {
             refreshTable();
             JOptionPane.showMessageDialog(this, "数据已刷新", "提示", JOptionPane.INFORMATION_MESSAGE);
         });
 
-        // 导出按钮
         btnExport.addActionListener(e -> exportToCSV());
 
-        // 初始化统计
         updateStats();
     }
 
@@ -148,24 +138,53 @@ public class AdminStatusPanel extends JPanel {
             model = bookDAO.getAllBorrowRecordsModelForAdmin();
             table.setModel(model);
 
-            // 设置列宽
+            // 调整列宽
             if (table.getColumnCount() > 0) {
-                table.getColumnModel().getColumn(0).setPreferredWidth(50);  // ID
-                table.getColumnModel().getColumn(1).setPreferredWidth(60);  // 图书ID
-                table.getColumnModel().getColumn(2).setPreferredWidth(180); // 图书名称
-                table.getColumnModel().getColumn(3).setPreferredWidth(60);  // 用户ID
-                table.getColumnModel().getColumn(4).setPreferredWidth(100); // 用户名
-                table.getColumnModel().getColumn(5).setPreferredWidth(150); // 借出日期
-                table.getColumnModel().getColumn(6).setPreferredWidth(150); // ★ 归还日期
-                table.getColumnModel().getColumn(7).setPreferredWidth(80);  // 是否归还
-                table.getColumnModel().getColumn(8).setPreferredWidth(200); // 状态/处理结果
+                table.getColumnModel().getColumn(0).setPreferredWidth(60);
+                table.getColumnModel().getColumn(0).setMinWidth(60);
+                table.getColumnModel().getColumn(0).setMaxWidth(80);
+
+                table.getColumnModel().getColumn(1).setPreferredWidth(60);
+                table.getColumnModel().getColumn(1).setMinWidth(60);
+                table.getColumnModel().getColumn(1).setMaxWidth(80);
+
+                table.getColumnModel().getColumn(2).setPreferredWidth(200);
+                table.getColumnModel().getColumn(2).setMinWidth(150);
+
+                table.getColumnModel().getColumn(3).setPreferredWidth(60);
+                table.getColumnModel().getColumn(3).setMinWidth(60);
+                table.getColumnModel().getColumn(3).setMaxWidth(80);
+
+                table.getColumnModel().getColumn(4).setPreferredWidth(100);
+                table.getColumnModel().getColumn(4).setMinWidth(80);
+
+                table.getColumnModel().getColumn(5).setPreferredWidth(160);
+                table.getColumnModel().getColumn(5).setMinWidth(160);
+
+                table.getColumnModel().getColumn(6).setPreferredWidth(160);
+                table.getColumnModel().getColumn(6).setMinWidth(160);
+
+                table.getColumnModel().getColumn(7).setPreferredWidth(80);
+                table.getColumnModel().getColumn(7).setMinWidth(80);
+                table.getColumnModel().getColumn(7).setMaxWidth(100);
+
+                table.getColumnModel().getColumn(8).setPreferredWidth(200);
+                table.getColumnModel().getColumn(8).setMinWidth(150);
             }
 
-            // 设置排序器
+            table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+
+            // 左对齐
+            javax.swing.table.DefaultTableCellRenderer leftRenderer = new javax.swing.table.DefaultTableCellRenderer();
+            leftRenderer.setHorizontalAlignment(javax.swing.SwingConstants.LEFT);
+
+            for (int i = 0; i < table.getColumnCount(); i++) {
+                table.getColumnModel().getColumn(i).setCellRenderer(leftRenderer);
+            }
+
             sorter = new TableRowSorter<>(model);
             table.setRowSorter(sorter);
 
-            // 清空搜索框
             if (txtSearchUser != null) {
                 txtSearchUser.setText("");
             }
@@ -184,7 +203,7 @@ public class AdminStatusPanel extends JPanel {
     }
 
     /**
-     * ★ 执行搜索和筛选（精准匹配用户名）
+     * ★★★ 执行搜索和筛选（修复：使用正确的列索引，优化提示信息）
      */
     private void performSearch() {
         if (sorter == null) {
@@ -194,34 +213,24 @@ public class AdminStatusPanel extends JPanel {
         String searchText = txtSearchUser.getText().trim();
         String selectedStatus = (String) cmbStatusFilter.getSelectedItem();
 
-        // 组合过滤条件
         RowFilter<DefaultTableModel, Object> combinedFilter = null;
 
-        // 1. 用户名过滤（第5列，索引4）- 精准匹配
+        // 1. 用户名过滤（第5列，索引4）
         RowFilter<DefaultTableModel, Object> userFilter = null;
         if (!searchText.isEmpty()) {
-            // ★ 使用 "^...$" 进行精准匹配（不区分大小写）
             userFilter = RowFilter.regexFilter("(?i)^" + Pattern.quote(searchText) + "$", 4);
         }
 
-        // 2. ★ 状态过滤（第8列，索引7）- 映射显示文字到实际数据
+        // 2. ★★★ 状态过滤（第8列"是否归还"，索引7）
         RowFilter<DefaultTableModel, Object> statusFilter = null;
         if (!"全部记录".equals(selectedStatus)) {
-            String actualStatus;
-            switch (selectedStatus) {
-                case "未归还":
-                    actualStatus = "未归还";  // 数据库中存储的是"未归还"
-                    break;
-                case "已归还":
-                    actualStatus = "已归还";
-                    break;
-                case "已遗失":
-                    actualStatus = "遗失";  // 数据库中存储的是"遗失"
-                    break;
-                default:
-                    actualStatus = selectedStatus;
+            if ("未归还".equals(selectedStatus)) {
+                statusFilter = RowFilter.regexFilter("^未归还$", 7);
+            } else if ("已归还".equals(selectedStatus)) {
+                statusFilter = RowFilter.regexFilter("^已归还$", 7);
+            } else if ("已遗失".equals(selectedStatus)) {
+                statusFilter = RowFilter.regexFilter("^遗失$", 7);
             }
-            statusFilter = RowFilter.regexFilter(actualStatus, 7);
         }
 
         // 3. 组合过滤器
@@ -236,15 +245,59 @@ public class AdminStatusPanel extends JPanel {
         sorter.setRowFilter(combinedFilter);
         updateStats();
 
-        // 提示搜索结果
-        if (!searchText.isEmpty() && table.getRowCount() == 0) {
+        // ★★★ 4. 根据不同的筛选条件显示不同的提示信息
+        if (table.getRowCount() == 0) {
+            String message = buildNoResultMessage(searchText, selectedStatus);
             JOptionPane.showMessageDialog(this,
-                    "未找到用户名为 [" + searchText + "] 的借阅记录。\n\n" +
-                            "提示：请输入完整的用户名（精准匹配）",
+                    message,
                     "搜索结果",
                     JOptionPane.INFORMATION_MESSAGE);
         }
     }
+
+    /**
+     * ★★★ 新增：根据筛选条件构建提示信息
+     */
+    private String buildNoResultMessage(String searchText, String selectedStatus) {
+        StringBuilder message = new StringBuilder();
+
+        // 情况1：只有用户名筛选
+        if (!searchText.isEmpty() && "全部记录".equals(selectedStatus)) {
+            message.append("未找到用户名为 [").append(searchText).append("] 的借阅记录。\n\n");
+            message.append("提示：请输入完整的用户名（精准匹配）");
+        }
+        // 情况2：只有状态筛选
+        else if (searchText.isEmpty() && !"全部记录".equals(selectedStatus)) {
+            message.append("当前没有状态为 [").append(selectedStatus).append("] 的借阅记录。\n\n");
+
+            if ("未归还".equals(selectedStatus)) {
+                message.append("提示：所有图书已归还或遗失");
+            } else if ("已归还".equals(selectedStatus)) {
+                message.append("提示：暂无已归还的图书记录");
+            } else if ("已遗失".equals(selectedStatus)) {
+                message.append("提示：暂无遗失的图书记录");
+            }
+        }
+        // 情况3：用户名 + 状态筛选
+        else if (!searchText.isEmpty() && !"全部记录".equals(selectedStatus)) {
+            message.append("未找到用户 [").append(searchText).append("] 状态为 [").append(selectedStatus).append("] 的借阅记录。\n\n");
+
+            if ("未归还".equals(selectedStatus)) {
+                message.append("提示：该用户可能没有未归还的图书，或用户名不存在");
+            } else if ("已归还".equals(selectedStatus)) {
+                message.append("提示：该用户可能没有已归还的图书，或用户名不存在");
+            } else if ("已遗失".equals(selectedStatus)) {
+                message.append("提示：该用户可能没有遗失的图书，或用户名不存在");
+            }
+        }
+        // 情况4：没有任何筛选条件（不应该出现）
+        else {
+            message.append("没有找到符合条件的借阅记录。");
+        }
+
+        return message.toString();
+    }
+
 
     /**
      * ★ 更新底部统计信息
@@ -254,16 +307,17 @@ public class AdminStatusPanel extends JPanel {
             return;
         }
 
-        int totalCount = table.getRowCount(); // 筛选后的行数
-        int borrowedCount = 0;  // ★ 改名：已借出
-        int returnedCount = 0;  // 已归还
-        int lostCount = 0;      // 已遗失
+        int totalCount = table.getRowCount();
+        int borrowedCount = 0;
+        int returnedCount = 0;
+        int lostCount = 0;
 
         for (int i = 0; i < totalCount; i++) {
+            // ★ 读取第8列（索引7）"是否归还"
             String returnStatus = (String) table.getValueAt(i, 7);
 
             if ("未归还".equals(returnStatus)) {
-                borrowedCount++;  // ★ 统计"未归还"（显示为"已借出"）
+                borrowedCount++;
             } else if ("已归还".equals(returnStatus)) {
                 returnedCount++;
             } else if ("遗失".equals(returnStatus)) {
@@ -277,13 +331,12 @@ public class AdminStatusPanel extends JPanel {
         );
         statsLabel.setText(statsText);
 
-        // 根据状态设置颜色
-        if (borrowedCount > 0) {
-            statsLabel.setForeground(new Color(230, 126, 34)); // 橙色
-        } else if (lostCount > 0) {
-            statsLabel.setForeground(new Color(192, 57, 43)); // 红色
+        if (lostCount > 0) {
+            statsLabel.setForeground(new Color(192, 57, 43));
+        } else if (borrowedCount > 0) {
+            statsLabel.setForeground(new Color(230, 126, 34));
         } else {
-            statsLabel.setForeground(new Color(39, 174, 96)); // 绿色
+            statsLabel.setForeground(new Color(39, 174, 96));
         }
     }
 
@@ -292,10 +345,7 @@ public class AdminStatusPanel extends JPanel {
      */
     private void exportToCSV() {
         if (table.getRowCount() == 0) {
-            JOptionPane.showMessageDialog(this,
-                    "没有数据可以导出！",
-                    "提示",
-                    JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "没有数据可以导出！", "提示", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -309,10 +359,8 @@ public class AdminStatusPanel extends JPanel {
             File fileToSave = fileChooser.getSelectedFile();
 
             try (FileWriter writer = new FileWriter(fileToSave)) {
-                // 写入BOM（UTF-8标记，让Excel正确识别中文）
                 writer.write('\ufeff');
 
-                // 写入表头
                 for (int i = 0; i < table.getColumnCount(); i++) {
                     writer.append(table.getColumnName(i));
                     if (i < table.getColumnCount() - 1) {
@@ -321,13 +369,11 @@ public class AdminStatusPanel extends JPanel {
                 }
                 writer.append("\n");
 
-                // 写入数据
                 for (int i = 0; i < table.getRowCount(); i++) {
                     for (int j = 0; j < table.getColumnCount(); j++) {
                         Object value = table.getValueAt(i, j);
                         String cellValue = value != null ? value.toString() : "";
 
-                        // 处理包含逗号的内容
                         if (cellValue.contains(",")) {
                             cellValue = "\"" + cellValue + "\"";
                         }
@@ -347,10 +393,7 @@ public class AdminStatusPanel extends JPanel {
                         JOptionPane.INFORMATION_MESSAGE);
 
             } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this,
-                        "导出失败: " + ex.getMessage(),
-                        "错误",
-                        JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "导出失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
             }
         }
     }
