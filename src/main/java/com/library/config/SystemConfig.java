@@ -9,7 +9,7 @@ public class SystemConfig {
     // ============================================================
     // ★ 测试模式开关（测试完成后改为 false）
     // ============================================================
-    public static final boolean IS_TEST_MODE = true; // ← 测试时改为 true，生产时改为 false
+    public static final boolean IS_TEST_MODE = false; // ← 测试时改为 true，生产时改为 false
 
     // ============================================================
     // ★ 借阅期限配置

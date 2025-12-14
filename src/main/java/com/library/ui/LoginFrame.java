@@ -91,61 +91,144 @@ public class LoginFrame extends JFrame {
      * @param expectedRole 预期的角色 ("admin" 或 "user")
      */
     private void performLogin(String username, String password, String expectedRole) {
-        try {
-            User user = userDAO.login(username, password);
-
-            // 检查实际登录的角色是否符合预期的按钮角色
-            if (!user.getRole().equals(expectedRole)) {
-                String roleCn = "admin".equals(expectedRole) ? "管理员" : "普通用户";
-                JOptionPane.showMessageDialog(this,
-                        "您的账号身份是 [" + ("admin".equals(user.getRole()) ? "管理员" : "普通用户") + "]，请使用正确的登录按钮。",
-                        "身份不匹配", JOptionPane.WARNING_MESSAGE);
-                return;
+        // ★ 使用 SwingWorker 实现异步登录，避免界面卡顿
+        SwingWorker<User, Void> worker = new SwingWorker<User, Void>() {
+            @Override
+            protected User doInBackground() throws Exception {
+                // 在后台线程执行登录
+                return userDAO.login(username, password);
             }
 
-            // ★ 登录成功，设置会话并跳转
-            SessionManager.setCurrentUser(user);
-            new MainFrame(user).setVisible(true);
-            dispose();
+            @Override
+            protected void done() {
+                try {
+                    User user = get();
 
-        } catch (ValidationException ex) {
-            // 验证异常（用户名或密码为空）
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                    // 检查实际登录的角色是否符合预期的按钮角色
+                    if (!user.getRole().equals(expectedRole)) {
+                        JOptionPane.showMessageDialog(LoginFrame.this,
+                                "您的账号身份是 [" + ("admin".equals(user.getRole()) ? "管理员" : "普通用户") +
+                                        "]，请使用正确的登录按钮。",
+                                "身份不匹配",
+                                JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
 
-        } catch (AuthException ex) {
-            // ★ 认证失败（用户名或密码错误、账号被禁用/注销）
-            // 创建自定义消息面板
-            JPanel messagePanel = new JPanel();
-            messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.Y_AXIS));
+                    // ★ 登录成功，显示确认弹窗
+                    showSuccessDialog(user);
 
-            // 主要错误信息
-            JLabel lblError = new JLabel(ex.getMessage());
-            lblError.setAlignmentX(Component.CENTER_ALIGNMENT);
+                } catch (Exception ex) {
+                    // 处理异常
+                    Throwable cause = ex.getCause();
 
-            // 空白间隔
-            messagePanel.add(lblError);
-            messagePanel.add(Box.createVerticalStrut(15)); // 15像素间隔
+                    if (cause instanceof ValidationException) {
+                        // 验证异常（用户名或密码为空）
+                        JOptionPane.showMessageDialog(LoginFrame.this,
+                                cause.getMessage(),
+                                "错误",
+                                JOptionPane.ERROR_MESSAGE);
 
-            // ★ 灰色提示（不使用斜体）
-            JLabel lblHint = new JLabel("如果没有账号，可以先注册账号");
-            lblHint.setFont(new Font("微软雅黑", Font.PLAIN, 11)); // ← PLAIN 普通字体
-            lblHint.setForeground(Color.GRAY); // 灰色
-            lblHint.setAlignmentX(Component.CENTER_ALIGNMENT);
+                    } else if (cause instanceof AuthException) {
+                        // ★ 认证失败（用户名或密码错误、账号被禁用/注销）
+                        JPanel messagePanel = new JPanel();
+                        messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.Y_AXIS));
+                        messagePanel.setBorder(BorderFactory.createEmptyBorder(5, 15, 5, 15));
 
-            messagePanel.add(lblHint);
+                        JLabel lblError = new JLabel(cause.getMessage());
+                        lblError.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-            // 显示自定义消息对话框
-            JOptionPane.showMessageDialog(this,
-                    messagePanel,
-                    "登录失败",
-                    JOptionPane.ERROR_MESSAGE);
+                        JLabel lblHint = new JLabel("如果没有账号，可以先注册账号");
+                        lblHint.setFont(new Font("微软雅黑", Font.PLAIN, 11));
+                        lblHint.setForeground(Color.GRAY);
+                        lblHint.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        } catch (DBException ex) {
-            // 数据库异常
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "系统错误", JOptionPane.ERROR_MESSAGE);
-        }
+                        messagePanel.add(lblError);
+                        messagePanel.add(Box.createVerticalStrut(15));
+                        messagePanel.add(lblHint);
+
+                        JOptionPane.showMessageDialog(LoginFrame.this,
+                                messagePanel,
+                                "登录失败",
+                                JOptionPane.ERROR_MESSAGE);
+
+                    } else if (cause instanceof DBException) {
+                        // 数据库异常
+                        JOptionPane.showMessageDialog(LoginFrame.this,
+                                cause.getMessage(),
+                                "系统错误",
+                                JOptionPane.ERROR_MESSAGE);
+                    } else {
+                        // 其他未知异常
+                        JOptionPane.showMessageDialog(LoginFrame.this,
+                                "登录失败：" + ex.getMessage(),
+                                "错误",
+                                JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            }
+        };
+
+        // 执行异步任务
+        worker.execute();
     }
 
+    /**
+     * ★ 显示登录成功对话框
+     */
+    private void showSuccessDialog(User user) {
+        String roleDisplay = "admin".equals(user.getRole()) ? "管理员" : "普通用户";
+
+        // 创建自定义成功面板
+        JPanel successPanel = new JPanel();
+        successPanel.setLayout(new BoxLayout(successPanel, BoxLayout.Y_AXIS));
+        successPanel.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
+
+        // ✓ 成功图标和标题
+        JLabel lblWelcome = new JLabel("✓ 登录成功！");
+        lblWelcome.setFont(new Font("微软雅黑", Font.BOLD, 16));
+        lblWelcome.setForeground(new Color(40, 167, 69)); // 绿色
+        lblWelcome.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        // 用户信息
+        JLabel lblUserInfo = new JLabel("欢迎您，" + user.getUsername());
+        lblUserInfo.setFont(new Font("微软雅黑", Font.PLAIN, 13));
+        lblUserInfo.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        // 角色信息
+        JLabel lblRoleInfo = new JLabel("身份：" + roleDisplay);
+        lblRoleInfo.setFont(new Font("微软雅黑", Font.PLAIN, 13));
+        lblRoleInfo.setForeground(new Color(0, 102, 204)); // 蓝色
+        lblRoleInfo.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        // 组装面板
+        successPanel.add(lblWelcome);
+        successPanel.add(Box.createVerticalStrut(12));
+        successPanel.add(lblUserInfo);
+        successPanel.add(Box.createVerticalStrut(5));
+        successPanel.add(lblRoleInfo);
+
+        // 显示成功对话框（带确定/取消按钮）
+        int result = JOptionPane.showConfirmDialog(this,
+                successPanel,
+                "登录成功",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE);
+
+        // ★ 用户点击"确定"后才进入主界面
+        if (result == JOptionPane.OK_OPTION) {
+            SessionManager.setCurrentUser(user);
+
+            // ★ 使用 SwingUtilities.invokeLater 确保 UI 更新流畅
+            SwingUtilities.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    new MainFrame(user).setVisible(true);
+                    dispose();
+                }
+            });
+        }
+        // 如果点击"取消"或关闭对话框，则留在登录界面
+    }
 
     /**
      * ★ 打开用户注册对话框
@@ -328,8 +411,26 @@ public class LoginFrame extends JFrame {
 
     public static void main(String[] args) {
         try {
+            // ★ 设置系统外观
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ignored) {}
-        SwingUtilities.invokeLater(() -> new LoginFrame().setVisible(true));
+
+        // ★ 启用抗锯齿和优化渲染
+        System.setProperty("awt.useSystemAAFontSettings", "on");
+        System.setProperty("swing.aatext", "true");
+
+        // ★ 启用硬件加速（如果支持）
+        System.setProperty("sun.java2d.opengl", "true");
+        System.setProperty("sun.java2d.d3d", "true");
+
+        // ★ 优化文本渲染质量
+        System.setProperty("awt.useSystemAAFontSettings", "lcd");
+
+        SwingUtilities.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                new LoginFrame().setVisible(true);
+            }
+        });
     }
 }
